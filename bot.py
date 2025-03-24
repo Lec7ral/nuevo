@@ -75,26 +75,26 @@ def cmd_enserio(message):
 @miBot.message_handler(commands=["inst"])
 async def cmd_install(message):
     res = await install_node_env()
-    miBot.reply_to(message, "algo hizo")
-    miBot.reply_to(message, f"{res}")
+    await miBot.reply_to(message, "algo hizo")
+    await miBot.reply_to(message, f"{res}")
 
 @miBot.message_handler(commands=["create"])
 async def cmd_create(message):
     res = await create_node_env()
-    miBot.reply_to(message, "algo hizo")
-    miBot.reply_to(message, f"{res}")
+    await miBot.reply_to(message, "algo hizo")
+    await miBot.reply_to(message, f"{res}")
 
 @miBot.message_handler(commands=["act"])
 async def cmd_install(message):
     res = await activate_node_env()
-    miBot.reply_to(message, "algo hizo")
-    miBot.reply_to(message, f"{res}")
+    await miBot.reply_to(message, "algo hizo")
+    await miBot.reply_to(message, f"{res}")
 
 @miBot.message_handler(commands=["modules"])
 async def cmd_install(message):
     res = await install_modules()
-    miBot.reply_to(message, "algo hizo")
-    miBot.reply_to(message, f"{res}")
+    await miBot.reply_to(message, "algo hizo")
+    await miBot.reply_to(message, f"{res}")
 
 
 
