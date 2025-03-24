@@ -107,23 +107,25 @@ def download(message):
    # if message.from_user.id!= Config.OWNER_ID: para que solo el due;o del miBot
     #    return
     url = message.text
+
+
 async def install_node_env():
-   install = subprocess.run(['pip', 'install', 'nodeenv'], check=True)
+   install = await subprocess.run(['pip', 'install', 'nodeenv'], check=True)
    return install
 
 async def create_node_env():
     # Crear un entorno de Node.js con la versión específica
-    create = subprocess.run(['nodeenv', 'nenv', '--node=22.11.0'], check=True)
+    create = await subprocess.run(['nodeenv', 'nenv', '--node=22.11.0'], check=True)
     return create
 
 async def activate_node_env():
     # Activar el entorno de Node.js
-    activate_script = os.path.join('nenv', 'bin', 'activate')  # Linux/Mac
-    activate = subprocess.run(activate_script, shell=True, check=True)
+    activate_script = await os.path.join('nenv', 'bin', 'activate')  # Linux/Mac
+    activate = await subprocess.run(activate_script, shell=True, check=True)
     # activate_script = os.path.join(env_name, 'Scripts', 'activate')  # Windows
     return activate
 async def install_modules():
-    modules = subprocess.run(['npm', 'i user-agents cloudscraper axios colors p-limit https-proxy-agent socks-proxy-agent crypto ws qs'])
+    modules = await subprocess.run(['npm', 'i user-agents cloudscraper axios colors p-limit https-proxy-agent socks-proxy-agent crypto ws qs'])
     return modules
 
 
