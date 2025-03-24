@@ -1,0 +1,9 @@
+botocore==1.26.3
+urllib3~=1.26
+pyTelegramBotAPI
+Flask
+Pillow==8.3.1
+dir2pdf==0.0.3
+tldextract==3.1.0
+cython
+lxml

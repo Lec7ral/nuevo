@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Archivos</title>
+</head>
+<body>
+  <h1>{{ current_path }}</h1>
+  <ul>
+  {% for file, link in files %}
+    <li><a href="{{ link }}">{{ file }}</a></li>
+  {% endfor %}
+  </ul>
+</body>
+</html>
