@@ -12,7 +12,7 @@ import signal
 
 BOT_API = os.environ['BOT_API']
 secret = os.environ['SECRET']
-url = 'https://mi-bot-oh1a.onrender.com'
+url = 'https://nuevo-uf5s.onrender.com'
 
 miBot = telebot.TeleBot(BOT_API, threaded = False)
 miBot.remove_webhook()
