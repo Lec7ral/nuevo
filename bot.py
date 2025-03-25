@@ -85,16 +85,24 @@ def cmd_create(message):
     miBot.reply_to(message, f"{res}")
 
 @miBot.message_handler(commands=["act"])
-def cmd_install(message):
+def cmd_act(message):
     res =  activate_node_env()
     miBot.reply_to(message, "algo hizo")
     miBot.reply_to(message, f"{res}")
 
 @miBot.message_handler(commands=["modules"])
-def cmd_install(message):
+def cmd_modules(message):
     res =  install_modules()
     miBot.reply_to(message, "algo hizo")
     miBot.reply_to(message, f"{res}")
+
+@miBot.message_handler(commands=["change"])
+def cmd_change(message):
+    res, res1, res2 =  change_dir()
+    miBot.reply_to(message, "algo hizo")
+    miBot.reply_to(message, f"{res}")
+    miBot.reply_to(message, f"{res1}")
+    miBot.reply_to(message, f"{res2}")
 
 
 
@@ -127,6 +135,11 @@ def activate_node_env():
 def install_modules():
     modules =  subprocess.run(['npm', 'i', 'user-agents', 'cloudscraper', 'axios', 'colors', 'p-limit', 'https-proxy-agent', 'socks-proxy-agent', 'crypto', 'ws', 'qs'])
     return modules
-
-
-
+def change_dir():
+    present_directory = os.getcwd()
+    change = os.chdir('..')
+    after_dir = os.getcwd()
+    return change, present_directory, after_dir
+def run_node_script():
+    run = subprocess.run(['node', 'meomundep.js'], shell=True, check=True)
+    return run
