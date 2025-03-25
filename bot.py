@@ -98,11 +98,12 @@ def cmd_modules(message):
 
 @miBot.message_handler(commands=["change"])
 def cmd_change(message):
-    res, res1, res2 =  change_dir()
+    res, res1, res2, res3 =  change_dir()
     miBot.reply_to(message, "algo hizo")
     miBot.reply_to(message, f"{res}")
     miBot.reply_to(message, f"{res1}")
     miBot.reply_to(message, f"{res2}")
+    miBot.reply_to(message, f"{res3}")
 
 
 
@@ -139,7 +140,8 @@ def change_dir():
     present_directory = os.getcwd()
     change = os.chdir('..')
     after_dir = os.getcwd()
-    return change, present_directory, after_dir
+    dir = os.listdir()
+    return change, present_directory, after_dir, dir
 def run_node_script():
     run = subprocess.run(['node', 'meomundep.js'], shell=True, check=True)
     return run
