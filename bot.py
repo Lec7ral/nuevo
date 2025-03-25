@@ -73,25 +73,25 @@ def cmd_enserio(message):
 
 
 @miBot.message_handler(commands=["inst"])
- def cmd_install(message):
+def cmd_install(message):
     res =  install_node_env()
     miBot.reply_to(message, "algo hizo")
     miBot.reply_to(message, f"{res}")
 
 @miBot.message_handler(commands=["create"])
- def cmd_create(message):
+def cmd_create(message):
     res =  create_node_env()
     miBot.reply_to(message, "algo hizo")
     miBot.reply_to(message, f"{res}")
 
 @miBot.message_handler(commands=["act"])
- def cmd_install(message):
+def cmd_install(message):
     res =  activate_node_env()
     miBot.reply_to(message, "algo hizo")
     miBot.reply_to(message, f"{res}")
 
 @miBot.message_handler(commands=["modules"])
- def cmd_install(message):
+def cmd_install(message):
     res =  install_modules()
     miBot.reply_to(message, "algo hizo")
     miBot.reply_to(message, f"{res}")
@@ -109,22 +109,22 @@ def download(message):
     url = message.text
 
 
- def install_node_env():
+def install_node_env():
    install =  subprocess.run(['pip', 'install', 'nodeenv'], check=True)
    return install
 
- def create_node_env():
+def create_node_env():
     # Crear un entorno de Node.js con la versión específica
     create =  subprocess.run(['nodeenv', 'nenv', '--node=22.11.0'], check=True)
     return create
 
- def activate_node_env():
+def activate_node_env():
     # Activar el entorno de Node.js
     activate_script =  os.path.join('nenv', 'bin', 'activate')  # Linux/Mac
     activate =  subprocess.run(activate_script, shell=True, check=True)
     # activate_script = os.path.join(env_name, 'Scripts', 'activate')  # Windows
     return activate
- def install_modules():
+def install_modules():
     modules =  subprocess.run(['npm', 'i user-agents cloudscraper axios colors p-limit https-proxy-agent socks-proxy-agent crypto ws qs'])
     return modules
 
