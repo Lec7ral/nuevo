@@ -73,28 +73,28 @@ def cmd_enserio(message):
 
 
 @miBot.message_handler(commands=["inst"])
-async def cmd_install(message):
-    res = await install_node_env()
-    await miBot.reply_to(message, "algo hizo")
-    await miBot.reply_to(message, f"{res}")
+ def cmd_install(message):
+    res =  install_node_env()
+    miBot.reply_to(message, "algo hizo")
+    miBot.reply_to(message, f"{res}")
 
 @miBot.message_handler(commands=["create"])
-async def cmd_create(message):
-    res = await create_node_env()
-    await miBot.reply_to(message, "algo hizo")
-    await miBot.reply_to(message, f"{res}")
+ def cmd_create(message):
+    res =  create_node_env()
+    miBot.reply_to(message, "algo hizo")
+    miBot.reply_to(message, f"{res}")
 
 @miBot.message_handler(commands=["act"])
-async def cmd_install(message):
-    res = await activate_node_env()
-    await miBot.reply_to(message, "algo hizo")
-    await miBot.reply_to(message, f"{res}")
+ def cmd_install(message):
+    res =  activate_node_env()
+    miBot.reply_to(message, "algo hizo")
+    miBot.reply_to(message, f"{res}")
 
 @miBot.message_handler(commands=["modules"])
-async def cmd_install(message):
-    res = await install_modules()
-    await miBot.reply_to(message, "algo hizo")
-    await miBot.reply_to(message, f"{res}")
+ def cmd_install(message):
+    res =  install_modules()
+    miBot.reply_to(message, "algo hizo")
+    miBot.reply_to(message, f"{res}")
 
 
 
@@ -109,23 +109,23 @@ def download(message):
     url = message.text
 
 
-async def install_node_env():
-   install = await subprocess.run(['pip', 'install', 'nodeenv'], check=True)
+ def install_node_env():
+   install =  subprocess.run(['pip', 'install', 'nodeenv'], check=True)
    return install
 
-async def create_node_env():
+ def create_node_env():
     # Crear un entorno de Node.js con la versión específica
-    create = await subprocess.run(['nodeenv', 'nenv', '--node=22.11.0'], check=True)
+    create =  subprocess.run(['nodeenv', 'nenv', '--node=22.11.0'], check=True)
     return create
 
-async def activate_node_env():
+ def activate_node_env():
     # Activar el entorno de Node.js
-    activate_script = await os.path.join('nenv', 'bin', 'activate')  # Linux/Mac
-    activate = await subprocess.run(activate_script, shell=True, check=True)
+    activate_script =  os.path.join('nenv', 'bin', 'activate')  # Linux/Mac
+    activate =  subprocess.run(activate_script, shell=True, check=True)
     # activate_script = os.path.join(env_name, 'Scripts', 'activate')  # Windows
     return activate
-async def install_modules():
-    modules = await subprocess.run(['npm', 'i user-agents cloudscraper axios colors p-limit https-proxy-agent socks-proxy-agent crypto ws qs'])
+ def install_modules():
+    modules =  subprocess.run(['npm', 'i user-agents cloudscraper axios colors p-limit https-proxy-agent socks-proxy-agent crypto ws qs'])
     return modules
 
 
