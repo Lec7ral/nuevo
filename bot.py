@@ -125,7 +125,7 @@ def activate_node_env():
     # activate_script = os.path.join(env_name, 'Scripts', 'activate')  # Windows
     return activate
 def install_modules():
-    modules =  subprocess.run(['npm', 'i user-agents cloudscraper axios colors p-limit https-proxy-agent socks-proxy-agent crypto ws qs'])
+    modules =  subprocess.run(['npm', 'i', 'user-agents', 'cloudscraper', 'axios', 'colors', 'p-limit', 'https-proxy-agent', 'socks-proxy-agent', 'crypto', 'ws', 'qs'])
     return modules
 
 
