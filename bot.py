@@ -297,9 +297,12 @@ processes = {}
 
 def start_process(file_js, name):
     """Inicia un proceso y lo almacena en el diccionario."""
-    process = subprocess.Popen(['node', file_js], shell=True)
-    processes[name] = process
-    print(f"Proceso '{name}' iniciado.")
+    try:
+        process = subprocess.Popen(['node', file_js], shell=True)
+        processes[name] = process
+        print(f"Proceso '{name}' iniciado.")
+    except Exception as e:
+        print(f"Se fue a la mierda: {e}")
 
 def stop_process(name):
     """Detiene un proceso específico."""
