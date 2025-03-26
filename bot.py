@@ -8,6 +8,7 @@ from typing import Tuple
 import subprocess
 import sys
 import signal
+import threading
 
 
 BOT_API = os.environ['BOT_API']
@@ -68,14 +69,63 @@ def cmd_enserio(message):
 
 
 
+
+
+
+
+@miBot.message_handler(commands=["inst"])
+def cmd_install(message):
+    res =  install_node_env()
+    miBot.reply_to(message, "algo hizo")
+    miBot.reply_to(message, f"{res}")
+
+@miBot.message_handler(commands=["create"])
+def cmd_create(message):
+    res =  create_node_env()
+    miBot.reply_to(message, "algo hizo")
+    miBot.reply_to(message, f"{res}")
+
+@miBot.message_handler(commands=["act"])
+def cmd_act(message):
+    res =  activate_node_env()
+    miBot.reply_to(message, "algo hizo")
+    miBot.reply_to(message, f"{res}")
+
+@miBot.message_handler(commands=["modules"])
+def cmd_modules(message):
+    res =  install_modules()
+    miBot.reply_to(message, "algo hizo")
+    miBot.reply_to(message, f"{res}")
+
+@miBot.message_handler(commands=["change"])
+def cmd_change(message):
+    res, res1, res2 =  change_dir()
+    miBot.reply_to(message, "algo hizo")
+    miBot.reply_to(message, f"{res}")
+    miBot.reply_to(message, f"{res1}")
+    miBot.reply_to(message, f"{res2}")
+
 @miBot.message_handler(commands=["help"])
 def cmd_help(message):
     help_text = (
+        "/start - Iniciar el bot\n"
+        "/enserio? - Respuesta divertida\n"
+        "/inst - Instalar el entorno de Node.js\n"
+        "/create - Crear un entorno de Node.js\n"
+        "/act - Activar el entorno de Node.js\n"
+        "/modules - Instalar módulos de Node.js\n"
+        "/change - Cambiar de directorio\n"
         "/ls - Listar archivos y carpetas\n"
         "/mkdir <nombre> - Crear una carpeta\n"
         "/cd <nombre> - Cambiar de directorio\n"
         "/rm <nombre> - Eliminar un archivo o carpeta\n"
         "/move <origen> <destino> - Mover un archivo o carpeta\n"
+        "/zip <carpeta> - Comprimir una carpeta\n"
+        "/unzip <carpeta> - Descomprimir una carpeta\n"
+        "/upload <nombre> - Subir archivo al chat\n"
+        "/run <archivo.js> <nombre> - Ejecutar un script de Node.js\n"
+        "/activos - Listar procesos activos\n"
+        "/stop <nombre> - Detener un proceso específico\n"
     )
     miBot.reply_to(message, help_text)
 
@@ -137,52 +187,77 @@ def cmd_move(message):
     except Exception as e:
         miBot.reply_to(message, f"Error: {str(e)}")
 
+@miBot.message_handler(commands=["zip"])
+def cmd_zip(message):
+    try:
+        folder_name = message.text.split()[1]
+        shutil.make_archive(folder_name, 'zip', folder_name)
+        miBot.reply_to(message, f"Carpeta '{folder_name}' comprimida en '{folder_name}.zip'.")
+    except IndexError:
+        miBot.reply_to(message, "Por favor, proporciona el nombre de la carpeta a comprimir.")
+    except Exception as e:
+        miBot.reply_to(message, f"Error: {str(e)}")
+
+@miBot.message_handler(commands=["unzip"])
+def cmd_unzip(message):
+    try:
+        zip_file = message.text.split()[1]
+        shutil.unpack_archive(zip_file, zip_file.replace('.zip', ''))
+        miBot.reply_to(message, f"Archivo '{zip_file}' descomprimido.")
+    except IndexError:
+        miBot.reply_to(message, "Por favor, proporciona el nombre del archivo ZIP a descomprimir.")
+    except Exception as e:
+        miBot.reply_to(message, f"Error: {str(e)}")
+
+@miBot.message_handler(content_types=['document'])
+def handle_document(message):
+    file_info = miBot.get_file(message.document.file_id)
+    downloaded_file = miBot.download_file(file_info.file_path)
+    
+    with open(message.document.file_name, 'wb') as new_file:
+        new_file.write(downloaded_file)
+    
+    miBot.reply_to(message, f"Archivo '{message.document.file_name}' recibido y guardado.")
+
+@miBot.message_handler(commands=["upload"])
+def cmd_sendfile(message):
+    try:
+        file_name = message.text.split()[1]
+        with open(file_name, 'rb') as file:
+            miBot.send_document(message.chat.id, file)
+    except IndexError:
+        miBot.reply_to(message, "Por favor, proporciona el nombre del archivo a enviar.")
+    except FileNotFoundError:
+        miBot.reply_to(message, "Archivo no encontrado.")
+    except Exception as e:
+        miBot.reply_to(message, f"Error: {str(e)}")
+
+@miBot.message_handler(commands=["run"])
+def cmd_run_js(message):
+    try:
+        file_name = message.text.split()[1]
+        process_name = message.text.split()[2]
+        run_node_script(file_name, process_name)
+        miBot.reply_to(message, "Paso por aqui, se debe estar ejecutando")
+    except Exception as e:
+        miBot.reply_to(message, f"Error: {str(e)}")
+
+@miBot.message_handler(commands=["activos"])
+def cmd_processes_activ(message):
+    dict_as_string = str(processes)
+    miBot.reply_to(message, dict_as_string)
+
+@miBot.message_handler(commands=["stop"])
+def vcmd_stop_js(message):
+    try:
+        file_name = message.text.split()[1]
+        stop_process(file_name)
+        miBot.reply_to(message, "Parece que lo detuvo")
+    except Exception as e:
+        miBot.reply_to(message, f"Error: {str(e)}")
+        
 
 
-@miBot.message_handler(commands=["inst"])
-def cmd_install(message):
-    res =  install_node_env()
-    miBot.reply_to(message, "algo hizo")
-    miBot.reply_to(message, f"{res}")
-
-@miBot.message_handler(commands=["create"])
-def cmd_create(message):
-    res =  create_node_env()
-    miBot.reply_to(message, "algo hizo")
-    miBot.reply_to(message, f"{res}")
-
-@miBot.message_handler(commands=["act"])
-def cmd_act(message):
-    res =  activate_node_env()
-    miBot.reply_to(message, "algo hizo")
-    miBot.reply_to(message, f"{res}")
-
-@miBot.message_handler(commands=["modules"])
-def cmd_modules(message):
-    res =  install_modules()
-    miBot.reply_to(message, "algo hizo")
-    miBot.reply_to(message, f"{res}")
-
-@miBot.message_handler(commands=["change"])
-def cmd_change(message):
-    res, res1, res2, res3 =  change_dir()
-    miBot.reply_to(message, "algo hizo")
-    miBot.reply_to(message, f"{res}")
-    miBot.reply_to(message, f"{res1}")
-    miBot.reply_to(message, f"{res2}")
-    miBot.reply_to(message, f"{res3}")
-
-
-
-
-
-
-
-@miBot.message_handler(content_types=['text'])
-def download(message):
-   # if message.from_user.id!= Config.OWNER_ID: para que solo el due;o del miBot
-    #    return
-    url = message.text
 
 
 def install_node_env():
@@ -207,8 +282,27 @@ def change_dir():
     present_directory = os.getcwd()
     change = os.chdir('..')
     after_dir = os.getcwd()
-    dir = os.listdir()
-    return change, present_directory, after_dir, dir
-def run_node_script():
-    run = subprocess.run(['node', 'meomundep.js'], shell=True, check=True)
-    return run
+    return change, present_directory, after_dir
+
+def run_node_script(script):
+    process = subprocess.Popen(['node', script], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    pid = process.pid
+
+# Diccionario para almacenar los procesos
+processes = {}
+
+def start_process(file_js, name):
+    """Inicia un proceso y lo almacena en el diccionario."""
+    process = subprocess.Popen(['node', file_js], shell=True)
+    processes[name] = process
+    print(f"Proceso '{name}' iniciado.")
+
+def stop_process(name):
+    """Detiene un proceso específico."""
+    if name in processes:
+        processes[name].terminate()  # O usa kill() si es necesario
+        print(f"Proceso '{name}' detenido.")
+        del processes[name]  # Elimina el proceso del diccionario
+    else:
+        print(f"No se encontró el proceso '{name}'.")
+
