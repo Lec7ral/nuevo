@@ -68,7 +68,74 @@ def cmd_enserio(message):
 
 
 
+@miBot.message_handler(commands=["help"])
+def cmd_help(message):
+    help_text = (
+        "/ls - Listar archivos y carpetas\n"
+        "/mkdir <nombre> - Crear una carpeta\n"
+        "/cd <nombre> - Cambiar de directorio\n"
+        "/rm <nombre> - Eliminar un archivo o carpeta\n"
+        "/move <origen> <destino> - Mover un archivo o carpeta\n"
+    )
+    miBot.reply_to(message, help_text)
 
+@miBot.message_handler(commands=["ls"])
+def cmd_ls(message):
+    files = os.listdir('.')
+    response = "\n".join(files) if files else "No hay archivos o carpetas."
+    miBot.reply_to(message, response)
+
+@miBot.message_handler(commands=["mkdir"])
+def cmd_mkdir(message):
+    try:
+        folder_name = message.text.split()[1]
+        os.makedirs(folder_name)
+        miBot.reply_to(message, f"Carpeta '{folder_name}' creada.")
+    except IndexError:
+        miBot.reply_to(message, "Por favor, proporciona un nombre para la carpeta.")
+    except Exception as e:
+        miBot.reply_to(message, f"Error: {str(e)}")
+
+@miBot.message_handler(commands=["cd"])
+def cmd_cd(message):
+    try:
+        dir_name = message.text.split()[1]
+        os.chdir(dir_name)
+        miBot.reply_to(message, f"Cambiado a directorio '{dir_name}'.")
+    except IndexError:
+        miBot.reply_to(message, "Por favor, proporciona un nombre de directorio.")
+    except FileNotFoundError:
+        miBot.reply_to(message, "Directorio no encontrado.")
+    except Exception as e:
+        miBot.reply_to(message, f"Error: {str(e)}")
+
+@miBot.message_handler(commands=["rm"])
+def cmd_rm(message):
+    try:
+        item_name = message.text.split()[1]
+        if os.path.isdir(item_name):
+            os.rmdir(item_name)  # Eliminar directorio vacío
+            miBot.reply_to(message, f"Directorio '{item_name}' eliminado.")
+        else:
+            os.remove(item_name)  # Eliminar archivo
+            miBot.reply_to(message, f"Archivo '{item_name}' eliminado.")
+    except IndexError:
+        miBot.reply_to(message, "Por favor, proporciona un nombre para eliminar.")
+    except Exception as e:
+        miBot.reply_to(message, f"Error: {str(e)}")
+
+@miBot.message_handler(commands=["move"])
+def cmd_move(message):
+    try:
+        args = message.text.split()
+        if len(args) != 3:
+            raise ValueError("Se requieren dos argumentos: origen y destino.")
+        origen = args[1]
+        destino = args[2]
+        shutil.move(origen, destino)
+        miBot.reply_to(message, f"Movido '{origen}' a '{destino}'.")
+    except Exception as e:
+        miBot.reply_to(message, f"Error: {str(e)}")
 
 
 
