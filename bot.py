@@ -86,7 +86,7 @@ def cmd_create(message):
         miBot.reply_to(message, "algo hizo")
         miBot.reply_to(message, f"{res}")
     except:
-        miBot.sen_message(message.chat.id, "Error")
+        miBot.send_message(message.chat.id, "Error")
 @miBot.message_handler(commands=["act"])
 def cmd_act(message):
     try:
@@ -94,7 +94,7 @@ def cmd_act(message):
         miBot.reply_to(message, "algo hizo")
         miBot.reply_to(message, f"{res}")
     except:
-        miBot.sen_message(message.chat.id, "Error")
+        miBot.send_message(message.chat.id, "Error")
 @miBot.message_handler(commands=["modules"])
 def cmd_modules(message):
     res =  install_modules()
