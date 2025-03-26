@@ -81,16 +81,20 @@ def cmd_install(message):
 
 @miBot.message_handler(commands=["create"])
 def cmd_create(message):
-    res =  create_node_env()
-    miBot.reply_to(message, "algo hizo")
-    miBot.reply_to(message, f"{res}")
-
+    try:
+        res =  create_node_env()
+        miBot.reply_to(message, "algo hizo")
+        miBot.reply_to(message, f"{res}")
+    except:
+        miBot.reply_to(message, "Error")
 @miBot.message_handler(commands=["act"])
 def cmd_act(message):
-    res =  activate_node_env()
-    miBot.reply_to(message, "algo hizo")
-    miBot.reply_to(message, f"{res}")
-
+    try:
+        res =  activate_node_env()
+        miBot.reply_to(message, "algo hizo")
+        miBot.reply_to(message, f"{res}")
+    except:
+        miBot.reply_to(message, "Error")
 @miBot.message_handler(commands=["modules"])
 def cmd_modules(message):
     res =  install_modules()
