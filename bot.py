@@ -237,7 +237,7 @@ def cmd_run_js(message):
     try:
         file_name = message.text.split()[1]
         process_name = message.text.split()[2]
-        run_node_script(file_name, process_name)
+        start_process(file_name, process_name)
         miBot.reply_to(message, "Paso por aqui, se debe estar ejecutando")
     except Exception as e:
         miBot.reply_to(message, f"Error: {str(e)}")
@@ -284,10 +284,10 @@ def change_dir():
     after_dir = os.getcwd()
     return change, present_directory, after_dir
 
-def run_node_script(script):
+""" def run_node_script(script):
     process = subprocess.Popen(['node', script], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     pid = process.pid
-
+ """
 # Diccionario para almacenar los procesos
 processes = {}
 
