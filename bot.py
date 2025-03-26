@@ -61,7 +61,7 @@ if __name__ == '__main__':
     app.run(debug=True)
 @miBot.message_handler(commands=["start"])
 def cmd_start(message):
-    miBot.reply_to(message, "Si funciona es la ostia")
+    miBot.send_message(message.chat.id, "Si funciona es la ostia")
 @miBot.message_handler(commands=["enserio?"])
 def cmd_enserio(message):
     miBot.reply_to(message, "Pos mira que si")
