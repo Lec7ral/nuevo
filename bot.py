@@ -14,7 +14,7 @@ import threading
 BOT_API = os.environ['BOT_API']
 secret = os.environ['SECRET']
 url = 'https://nuevo-uf5s.onrender.com'
-
+ABSOLUTE_PATH = os.getcwd()
 miBot = telebot.TeleBot(BOT_API)
 miBot.remove_webhook()
 miBot.set_webhook(url=url)
@@ -70,16 +70,97 @@ def cmd_enserio(message):
 
 
 
+processes_list = {}
 
+def create_process_buttons():
+    """Crea botones para los procesos en ejecución."""
+    keyboard = telebot.types.InlineKeyboardMarkup()
+    for name in processes_list.keys():
+        exists = processes.get(name)
+        if exists:
+            status = "🟢" if processes[name].poll() is None else "🔴"  # Verde si está corriendo, rojo si está detenido
+        else:
+            status = "🔴"
+        keyboard.add(telebot.types.InlineKeyboardButton(f"{status} {name}", callback_data=name))
+    keyboard.add(telebot.types.InlineKeyboardButton("Agregar Proceso", callback_data="add_process"))
+    return keyboard
+@miBot.message_handler(commands=['list'])
+def list_processes(message):
+    """Muestra los procesos en ejecución con botones."""
+    keyboard = create_process_buttons()
+    miBot.send_message(message.chat.id, "Selecciona un proceso:", reply_markup=keyboard)
+@miBot.callback_query_handler(func=lambda call: True)
+def handle_query(call):
+    """Maneja las interacciones con los botones."""
+    if call.data == "add_process":
+        miBot.send_message(call.message.chat.id, "Proceso, ruta, js (separados por una coma).")
+        miBot.register_next_step_handler(call.message, add_process)
+    elif call.data in processes:
+        # Si el proceso está corriendo, lo detenemos; si no, lo iniciamos
+        if processes[call.data].poll() is None:
+            if stop_process(call.data):
+                miBot.answer_callback_query(call.id, f"Proceso '{call.data}' detenido.")
+        else:
+            miBot.answer_callback_query(call.id, f"Proceso '{call.data}' iniciado.")
+            # Iniciar el proceso
+            start_process(call.data)
+
+    # Volver a mostrar los botones después de la acción
+    keyboard = create_process_buttons()
+    miBot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=keyboard)
+    
+def add_process(message):
+    """Agrega un nuevo proceso a la lista."""
+    try:
+        script_info = message.text.split(',')
+        process_name = script_info[0].strip()
+        script_name = script_info[2].strip()  # Nombre del script
+        relative_path = script_info[1].strip()  # Ruta relativa del script
+
+
+        # Construir la ruta completa del script
+        full_script_path = os.path.join(ABSOLUTE_PATH, relative_path, script_name)
+        absolute_file_path = os.path.join(ABSOLUTE_PATH, relative_path)
+
+        # Verificar si el script existe
+        if not os.path.isfile(full_script_path):
+            miBot.send_message(message.chat.id, f"Error: El script '{full_script_path}' no existe.")
+            return
+
+        # Iniciar el proceso
+        threading.Thread(target=run_process, args=(absolute_file_path, process_name, script_name)).start()
+        miBot.send_message(message.chat.id, f"Proceso '{script_name}' agregado y en ejecución.")
+        processes_list[process_name] = {
+            'script' : script_name,
+            'route' : absolute_file_path
+        }
+    except Exception as e:
+        miBot.send_message(message.chat.id, f"Error al agregar el proceso: {e}")
 
 
 @miBot.message_handler(commands=["inst"])
 def cmd_install(message):
     res =  install_node_env()
-    miBot.reply_to(message, "algo hizo")
+    miBot.reply_to(message, "instalado")
+    miBot.reply_to(message, f"{res}")
+    try:
+        res =  create_node_env()
+        miBot.reply_to(message, f"{res}")
+        miBot.reply_to(message, "Creado el entorno")
+    except:
+        miBot.send_message(message.chat.id, "Error")
+    try:
+        res =  activate_node_env()
+        miBot.reply_to(message, "Activado")
+        miBot.reply_to(message, f"{res}")
+    except:
+        miBot.send_message(message.chat.id, "Error")
+    res =  install_modules()
+    miBot.reply_to(message, "Modulos instalados")
     miBot.reply_to(message, f"{res}")
 
-@miBot.message_handler(commands=["create"])
+
+"""@miBot.message_handler(commands=["create"])
 def cmd_create(message):
     try:
         res =  create_node_env()
@@ -99,15 +180,9 @@ def cmd_act(message):
 def cmd_modules(message):
     res =  install_modules()
     miBot.reply_to(message, "algo hizo")
-    miBot.reply_to(message, f"{res}")
+    miBot.reply_to(message, f"{res}")"""
 
-@miBot.message_handler(commands=["change"])
-def cmd_change(message):
-    res, res1, res2 =  change_dir()
-    miBot.reply_to(message, "algo hizo")
-    miBot.reply_to(message, f"{res}")
-    miBot.reply_to(message, f"{res1}")
-    miBot.reply_to(message, f"{res2}")
+
 
 @miBot.message_handler(commands=["help"])
 def cmd_help(message):
@@ -115,10 +190,9 @@ def cmd_help(message):
         "/start - Iniciar el bot\n"
         "/enserio? - Respuesta divertida\n"
         "/inst - Instalar el entorno de Node.js\n"
-        "/create - Crear un entorno de Node.js\n"
-        "/act - Activar el entorno de Node.js\n"
-        "/modules - Instalar módulos de Node.js\n"
-        "/change - Cambiar de directorio\n"
+        "create - Crear un entorno de Node.js\n"
+        "act - Activar el entorno de Node.js\n"
+        "modules - Instalar módulos de Node.js\n"
         "/ls - Listar archivos y carpetas\n"
         "/mkdir <nombre> - Crear una carpeta\n"
         "/cd <nombre> - Cambiar de directorio\n"
@@ -241,15 +315,29 @@ def cmd_run_js(message):
     try:
         file_name = message.text.split()[1]
         process_name = message.text.split()[2]
-        start_process(file_name, process_name)
+        #start_process(file_name, process_name)
         miBot.reply_to(message, "Paso por aqui, se debe estar ejecutando")
     except Exception as e:
         miBot.reply_to(message, f"Error: {str(e)}")
 
 @miBot.message_handler(commands=["activos"])
 def cmd_processes_activ(message):
-    dict_as_string = str(processes)
-    miBot.reply_to(message, dict_as_string)
+    """dict_as_string = str(processes)
+    miBot.reply_to(message, dict_as_string)"""
+    """Lista todos los subprocesos en ejecución y envía la información al chat de Telegram."""
+    if not processes:
+        miBot.send_message(message.chat.id, "No hay subprocesos en ejecución.")
+    else:
+        message_text = "Subprocesos en ejecución:\n"
+        for name in list(processes.keys()):
+            process = processes[name]
+            if process.poll() is None:  # Si el proceso sigue en ejecución
+                message_text += f"- {name} (PID: {process.pid})\n"
+            else:
+                message_text += f"- {name} ha terminado.\n"
+                del processes[name]  # Eliminar el proceso terminado
+        miBot.send_message(message.chat.id, message_text)
+
 
 @miBot.message_handler(commands=["stop"])
 def vcmd_stop_js(message):
@@ -295,9 +383,10 @@ def change_dir():
 # Diccionario para almacenar los procesos
 processes = {}
 
-def run_process(file_js, name):
+def run_process(route, name, file_js):
     """Inicia un proceso y lo almacena en el diccionario, leyendo la salida en tiempo real."""
     try:
+        os.chdir(route)
         # Iniciar el proceso y redirigir la salida
         process = subprocess.Popen(['node', file_js], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         processes[name] = process
@@ -320,8 +409,11 @@ def run_process(file_js, name):
         print(f"Se produjo un error: {e}")
 
 # Ejecutar el proceso en un hilo separado
-def start_process(file_js, name):
-    thread = threading.Thread(target=run_process, args=(file_js, name))
+def start_process(name):
+    process_info = processes_list[name]
+    script_name = process_info['script']
+    script_route = process_info['route']
+    thread = threading.Thread(target=run_process, args=(script_route, name, script_name))
     thread.start()
 
 def stop_process(name):
