@@ -295,26 +295,33 @@ def change_dir():
 # Diccionario para almacenar los procesos
 processes = {}
 
+def run_process(file_js, name):
+    """Inicia un proceso y lo almacena en el diccionario, leyendo la salida en tiempo real."""
+    try:
+        # Iniciar el proceso y redirigir la salida
+        process = subprocess.Popen(['node', file_js], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        processes[name] = process
+        print(f"Proceso '{name}' iniciado.")
+
+        # Leer la salida y errores en tiempo real
+        while True:
+            output = process.stdout.readline()  # Leer una línea de la salida estándar
+            if output == '' and process.poll() is not None:
+                break  # Salir si el proceso ha terminado
+            if output:
+                print(output.strip())  # Imprimir la salida
+
+        # Leer la salida de error
+        stderr_output = process.stderr.read()
+        if stderr_output:
+            print(stderr_output.strip())
+
+    except Exception as e:
+        print(f"Se produjo un error: {e}")
+
+# Ejecutar el proceso en un hilo separado
 def start_process(file_js, name):
-    """Inicia un proceso y lo almacena en el diccionario."""
-    def run_process():
-        try:
-            # Iniciar el proceso y redirigir la salida
-            process = subprocess.Popen(['node', file_js], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            processes[name] = process
-            print(f"Proceso '{name}' iniciado.")
-
-            # Leer la salida y errores
-            stdout, stderr = process.communicate()
-            if stdout:
-                print(stdout.decode())
-            if stderr:
-                print(stderr.decode())
-        except Exception as e:
-            print(f"Se produjo un error: {e}")
-
-    # Ejecutar el proceso en un hilo separado
-    thread = threading.Thread(target=run_process)
+    thread = threading.Thread(target=run_process, args=(file_js, name))
     thread.start()
 
 def stop_process(name):
