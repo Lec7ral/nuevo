@@ -166,7 +166,7 @@ def cmd_cd(message):
 @miBot.message_handler(commands=["rm"])
 def cmd_rm(message):
     try:
-        item_name = message.text.split()[1]
+        item_name = message.text[3:].strip()
         if os.path.isdir(item_name):
             os.rmdir(item_name)  # Eliminar directorio vacío
             miBot.reply_to(message, f"Directorio '{item_name}' eliminado.")
@@ -194,7 +194,7 @@ def cmd_move(message):
 @miBot.message_handler(commands=["zip"])
 def cmd_zip(message):
     try:
-        folder_name = message.text.split()[1]
+        folder_name = message.text[4:].strip()
         shutil.make_archive(folder_name, 'zip', folder_name)
         miBot.reply_to(message, f"Carpeta '{folder_name}' comprimida en '{folder_name}.zip'.")
     except IndexError:
@@ -205,7 +205,7 @@ def cmd_zip(message):
 @miBot.message_handler(commands=["unzip"])
 def cmd_unzip(message):
     try:
-        zip_file = message.text.split()[1]
+        zip_file = message.text[6:].strip()
         shutil.unpack_archive(zip_file, zip_file.replace('.zip', ''))
         miBot.reply_to(message, f"Archivo '{zip_file}' descomprimido.")
     except IndexError:
@@ -226,7 +226,7 @@ def handle_document(message):
 @miBot.message_handler(commands=["upload"])
 def cmd_sendfile(message):
     try:
-        file_name = message.text.split()[1]
+        file_name = message.text[7:].strip()
         with open(file_name, 'rb') as file:
             miBot.send_document(message.chat.id, file)
     except IndexError:
@@ -297,19 +297,41 @@ processes = {}
 
 def start_process(file_js, name):
     """Inicia un proceso y lo almacena en el diccionario."""
-    try:
-        process = subprocess.Popen(['node', file_js], shell=True)
-        processes[name] = process
-        print(f"Proceso '{name}' iniciado.")
-    except Exception as e:
-        print(f"Se fue a la mierda: {e}")
+    def run_process():
+        try:
+            # Iniciar el proceso y redirigir la salida
+            process = subprocess.Popen(['node', file_js], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            processes[name] = process
+            print(f"Proceso '{name}' iniciado.")
+
+            # Leer la salida y errores
+            stdout, stderr = process.communicate()
+            if stdout:
+                print(stdout.decode())
+            if stderr:
+                print(stderr.decode())
+        except Exception as e:
+            print(f"Se produjo un error: {e}")
+
+    # Ejecutar el proceso en un hilo separado
+    thread = threading.Thread(target=run_process)
+    thread.start()
 
 def stop_process(name):
     """Detiene un proceso específico."""
     if name in processes:
-        processes[name].terminate()  # O usa kill() si es necesario
-        print(f"Proceso '{name}' detenido.")
-        del processes[name]  # Elimina el proceso del diccionario
+        try:
+            processes[name].terminate()  # Intenta terminar el proceso de manera ordenada
+            processes[name].wait(timeout=5)  # Espera hasta 5 segundos para que se detenga
+            print(f"Proceso '{name}' detenido.")
+        except subprocess.TimeoutExpired:
+            print(f"El proceso '{name}' no se detuvo a tiempo. Forzando la terminación.")
+            processes[name].kill()  # Forzar la terminación si no se detuvo
+            print(f"Proceso '{name}' forzado a detenerse.")
+        except Exception as e:
+            print(f"Error al detener el proceso '{name}': {e}")
+        finally:
+            del processes[name]  # Elimina el proceso del diccionario
     else:
         print(f"No se encontró el proceso '{name}'.")
 
