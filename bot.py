@@ -15,7 +15,7 @@ BOT_API = os.environ['BOT_API']
 secret = os.environ['SECRET']
 url = 'https://nuevo-uf5s.onrender.com'
 
-miBot = telebot.TeleBot(BOT_API, threaded = False)
+miBot = telebot.TeleBot(BOT_API)
 miBot.remove_webhook()
 miBot.set_webhook(url=url)
 
@@ -142,7 +142,7 @@ def cmd_ls(message):
 @miBot.message_handler(commands=["mkdir"])
 def cmd_mkdir(message):
     try:
-        folder_name = message.text.split()[1]
+        folder_name = message.text[6:].strip()
         os.makedirs(folder_name)
         miBot.reply_to(message, f"Carpeta '{folder_name}' creada.")
     except IndexError:
@@ -153,7 +153,7 @@ def cmd_mkdir(message):
 @miBot.message_handler(commands=["cd"])
 def cmd_cd(message):
     try:
-        dir_name = message.text.split()[1]
+        dir_name = message.text[3:].strip()
         os.chdir(dir_name)
         miBot.reply_to(message, f"Cambiado a directorio '{dir_name}'.")
     except IndexError:
