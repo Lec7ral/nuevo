@@ -103,6 +103,8 @@ def handle_query(call):
             stop_process(call.data)    
         else:
             start_process(call.data)
+    else:
+        start_process(call.data)
 
     # Volver a mostrar los botones después de la acción
     keyboard = create_process_buttons()
