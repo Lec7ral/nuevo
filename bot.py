@@ -98,11 +98,8 @@ def handle_query(call):
     elif call.data in processes:
         # Si el proceso está corriendo, lo detenemos; si no, lo iniciamos
         if processes[call.data].poll() is None:
-            if stop_process(call.data):
-                miBot.answer_callback_query(call.id, f"Proceso '{call.data}' detenido.")
+            stop_process(call.data)    
         else:
-            miBot.answer_callback_query(call.id, f"Proceso '{call.data}' iniciado.")
-            # Iniciar el proceso
             start_process(call.data)
 
     # Volver a mostrar los botones después de la acción
