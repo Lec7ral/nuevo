@@ -313,9 +313,8 @@ def cmd_sendfile(message):
 @miBot.message_handler(commands=["run"])
 def cmd_run_js(message):
     try:
-        file_name = message.text.split()[1]
-        process_name = message.text.split()[2]
-        #start_process(file_name, process_name)
+        process_name = message.text.split()[1]
+        start_process(process_name)
         miBot.reply_to(message, "Paso por aqui, se debe estar ejecutando")
     except Exception as e:
         miBot.reply_to(message, f"Error: {str(e)}")
