@@ -410,11 +410,14 @@ def run_process(route, name, file_js):
 
 # Ejecutar el proceso en un hilo separado
 def start_process(name):
-    process_info = processes_list[name]
-    script_name = process_info['script']
-    script_route = process_info['route']
-    thread = threading.Thread(target=run_process, args=(script_route, name, script_name))
-    thread.start()
+    try:
+        process_info = processes_list[name]
+        script_name = process_info['script']
+        script_route = process_info['route']
+        thread = threading.Thread(target=run_process, args=(script_route, name, script_name))
+        thread.start()
+    except Exception as e:
+        print(e)
 
 def stop_process(name):
     """Detiene un proceso específico."""
