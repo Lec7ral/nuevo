@@ -176,12 +176,17 @@ def cmd_act(message):
         miBot.reply_to(message, "algo hizo")
         miBot.reply_to(message, f"{res}")
     except:
-        miBot.send_message(message.chat.id, "Error")
+        miBot.send_message(message.chat.id, "Error")"""
 @miBot.message_handler(commands=["modules"])
 def cmd_modules(message):
-    res =  install_modules()
-    miBot.reply_to(message, "algo hizo")
-    miBot.reply_to(message, f"{res}")"""
+    modules_to_install = message.text.split()[1:]  # Ignora el primer elemento que es el comando
+    if not modules_to_install:
+        miBot.reply_to(message, "Por favor, proporciona los módulos a instalar.")
+        return
+    
+    res = install_extra_modules(modules_to_install)
+    miBot.reply_to(message, "Instalando módulos...")
+    miBot.reply_to(message, f"{res}")
 
 
 
@@ -367,6 +372,10 @@ def activate_node_env():
     activate =  subprocess.run(activate_script, shell=True, check=True)
     # activate_script = os.path.join(env_name, 'Scripts', 'activate')  # Windows
     return activate
+def install_extra_modules(modules):
+    result = subprocess.run(['npm', 'i'] + modules, capture_output=True, text=True)
+    return result.stdout if result.returncode == 0 else result.stderr
+    
 def install_modules():
     modules =  subprocess.run(['npm', 'i', 'user-agents', 'cloudscraper', 'axios', 'colors', 'p-limit', 'https-proxy-agent', 'socks-proxy-agent', 'crypto', 'ws', 'qs'])
     return modules
