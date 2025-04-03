@@ -322,8 +322,8 @@ def cmd_run_js(message):
 
 @miBot.message_handler(commands=["activos"])
 def cmd_processes_activ(message):
-    """dict_as_string = str(processes)
-    miBot.reply_to(message, dict_as_string)"""
+    dict_as_string = str(processes_list)
+    miBot.reply_to(message, dict_as_string)
     """Lista todos los subprocesos en ejecución y envía la información al chat de Telegram."""
     if not processes:
         miBot.send_message(message.chat.id, "No hay subprocesos en ejecución.")
@@ -410,9 +410,12 @@ def run_process(route, name, file_js):
 
 # Ejecutar el proceso en un hilo separado
 def start_process(name):
+    print('fue llamado')
     try:
         process_info = processes_list[name]
+        print(process_info)
         script_name = process_info['script']
+        print(script_name)
         script_route = process_info['route']
         thread = threading.Thread(target=run_process, args=(script_route, name, script_name)).start()
     except Exception as e:
