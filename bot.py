@@ -76,15 +76,14 @@ def create_process_buttons():
     """Crea botones para los procesos en ejecución."""
     keyboard = telebot.types.InlineKeyboardMarkup()
     for name in processes_list.keys():
-        try:
-            exists = processes.get(name)
-        except Exception as e:
-            print(e)
-        if exists:
+        # Verifica si el proceso está en el diccionario de procesos
+        if name in processes:
+            # Verifica si el proceso está corriendo
             status = "🟢" if processes[name].poll() is None else "🔴"  # Verde si está corriendo, rojo si está detenido
         else:
-            status = "🔴"
+            status = "🔴"  # Si no está en el diccionario, se considera detenido
         keyboard.add(telebot.types.InlineKeyboardButton(f"{status} {name}", callback_data=name))
+    
     keyboard.add(telebot.types.InlineKeyboardButton("Agregar Proceso", callback_data="add_process"))
     return keyboard
 @miBot.message_handler(commands=['list'])
