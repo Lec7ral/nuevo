@@ -76,7 +76,10 @@ def create_process_buttons():
     """Crea botones para los procesos en ejecución."""
     keyboard = telebot.types.InlineKeyboardMarkup()
     for name in processes_list.keys():
-        exists = processes.get(name)
+        try:
+            exists = processes.get(name)
+        except Exception as e:
+            print(e)
         if exists:
             status = "🟢" if processes[name].poll() is None else "🔴"  # Verde si está corriendo, rojo si está detenido
         else:
