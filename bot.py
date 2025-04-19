@@ -114,7 +114,7 @@ def add_process(message):
     """Agrega un nuevo proceso a la lista."""
     try:
         #script_info = message.text.split(',')
-        process_name = script_info[0].strip()
+        process_name = message.text.strip()
         #script_name = script_info[2].strip()  # Nombre del script
         #relative_path = script_info[1].strip()  # Ruta relativa del script
 
