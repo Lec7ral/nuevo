@@ -95,7 +95,7 @@ def list_processes(message):
 def handle_query(call):
     """Maneja las interacciones con los botones."""
     if call.data == "add_process":
-        miBot.send_message(call.message.chat.id, "Proceso, ruta, js (separados por una coma).")
+        miBot.send_message(call.message.chat.id, "Proceso.")
         miBot.register_next_step_handler(call.message, add_process)
     elif call.data in processes:
         # Si el proceso está corriendo, lo detenemos; si no, lo iniciamos
@@ -113,15 +113,15 @@ def handle_query(call):
 def add_process(message):
     """Agrega un nuevo proceso a la lista."""
     try:
-        script_info = message.text.split(',')
+        #script_info = message.text.split(',')
         process_name = script_info[0].strip()
-        script_name = script_info[2].strip()  # Nombre del script
-        relative_path = script_info[1].strip()  # Ruta relativa del script
+        #script_name = script_info[2].strip()  # Nombre del script
+        #relative_path = script_info[1].strip()  # Ruta relativa del script
 
 
         # Construir la ruta completa del script
-        full_script_path = os.path.join(ABSOLUTE_PATH, relative_path, script_name)
-        absolute_file_path = os.path.join(ABSOLUTE_PATH, relative_path)
+        full_script_path = os.path.join(ABSOLUTE_PATH, process_name, "meomundep.js")
+        absolute_file_path = os.path.join(ABSOLUTE_PATH, process_name)
 
         # Verificar si el script existe
         if not os.path.isfile(full_script_path):
@@ -129,10 +129,10 @@ def add_process(message):
             return
 
         # Iniciar el proceso
-        threading.Thread(target=run_process, args=(absolute_file_path, process_name, script_name)).start()
-        miBot.send_message(message.chat.id, f"Proceso '{script_name}' agregado y en ejecución.")
+        threading.Thread(target=run_process, args=(absolute_file_path, process_name, "meomundep.js")).start()
+        miBot.send_message(message.chat.id, f"Proceso '{process_name}' agregado y en ejecución.")
         processes_list[process_name] = {
-            'script' : script_name,
+            'script' : "meomundep.js",
             'route' : absolute_file_path
         }
     except Exception as e:
@@ -161,22 +161,7 @@ def cmd_install(message):
     miBot.reply_to(message, f"{res}")
 
 
-"""@miBot.message_handler(commands=["create"])
-def cmd_create(message):
-    try:
-        res =  create_node_env()
-        miBot.reply_to(message, "algo hizo")
-        miBot.reply_to(message, f"{res}")
-    except:
-        miBot.send_message(message.chat.id, "Error")
-@miBot.message_handler(commands=["act"])
-def cmd_act(message):
-    try:
-        res =  activate_node_env()
-        miBot.reply_to(message, "algo hizo")
-        miBot.reply_to(message, f"{res}")
-    except:
-        miBot.send_message(message.chat.id, "Error")"""
+
 @miBot.message_handler(commands=["modules"])
 def cmd_modules(message):
     modules_to_install = message.text.split()[1:]  # Ignora el primer elemento que es el comando
@@ -196,19 +181,17 @@ def cmd_help(message):
         "/start - Iniciar el bot\n"
         "/enserio? - Respuesta divertida\n"
         "/inst - Instalar el entorno de Node.js\n"
-        "create - Crear un entorno de Node.js\n"
-        "act - Activar el entorno de Node.js\n"
-        "modules - Instalar módulos de Node.js\n"
+        "/modules - Instalar módulos de Node.js\n"
         "/ls - Listar archivos y carpetas\n"
         "/mkdir <nombre> - Crear una carpeta\n"
         "/cd <nombre> - Cambiar de directorio\n"
         "/rm <nombre> - Eliminar un archivo o carpeta\n"
-        "/move <origen> <destino> - Mover un archivo o carpeta\n"
+        "/mv <origen> <destino> - Mover un archivo o carpeta\n"
         "/zip <carpeta> - Comprimir una carpeta\n"
         "/unzip <carpeta> - Descomprimir una carpeta\n"
-        "/upload <nombre> - Subir archivo al chat\n"
+        "/up <nombre> - Subir archivo al chat\n"
         "/run <archivo.js> <nombre> - Ejecutar un script de Node.js\n"
-        "/activos - Listar procesos activos\n"
+        "/act - Listar procesos activos\n"
         "/stop <nombre> - Detener un proceso específico\n"
     )
     miBot.reply_to(message, help_text)
@@ -234,8 +217,20 @@ def cmd_mkdir(message):
 def cmd_cd(message):
     try:
         dir_name = message.text[3:].strip()
-        os.chdir(dir_name)
+        os.chdir(dir_name)  # Cambiar al directorio especificado
         miBot.reply_to(message, f"Cambiado a directorio '{dir_name}'.")
+
+        # Obtener el listado actual de carpetas y archivos en el directorio
+        current_directory = os.getcwd()  # Obtener el directorio actual
+        items = os.listdir(current_directory)  # Listar archivos y carpetas
+
+        # Crear un mensaje con el listado
+        if items:
+            items_list = "\n".join(items)  # Unir los nombres en una cadena
+            miBot.reply_to(message, f"Contenido del directorio '{current_directory}':\n{items_list}")
+        else:
+            miBot.reply_to(message, f"El directorio '{current_directory}' está vacío.")
+
     except IndexError:
         miBot.reply_to(message, "Por favor, proporciona un nombre de directorio.")
     except FileNotFoundError:
@@ -258,7 +253,7 @@ def cmd_rm(message):
     except Exception as e:
         miBot.reply_to(message, f"Error: {str(e)}")
 
-@miBot.message_handler(commands=["move"])
+@miBot.message_handler(commands=["mv"])
 def cmd_move(message):
     try:
         args = message.text.split()
@@ -298,12 +293,28 @@ def handle_document(message):
     file_info = miBot.get_file(message.document.file_id)
     downloaded_file = miBot.download_file(file_info.file_path)
     
+    # Guardar el archivo recibido
     with open(message.document.file_name, 'wb') as new_file:
         new_file.write(downloaded_file)
     
     miBot.reply_to(message, f"Archivo '{message.document.file_name}' recibido y guardado.")
+    
+    # Verificar si el archivo es un .zip
+    if message.document.file_name.endswith('.zip'):
+        try:
+            # Descomprimir el archivo .zip
+            zip_file = message.document.file_name
+            shutil.unpack_archive(zip_file, zip_file.replace('.zip', ''))  # Extraer en una carpeta con el mismo nombre sin .zip
+            
+            # Eliminar el archivo .zip
+            os.remove(zip_file)
+            miBot.reply_to(message, f"Archivo '{zip_file}' descomprimido y eliminado.")
+        except IndexError:
+            miBot.reply_to(message, "Por favor, proporciona el nombre del archivo ZIP a descomprimir.")
+        except Exception as e:
+            miBot.reply_to(message, f"Error al descomprimir el archivo: {str(e)}")
 
-@miBot.message_handler(commands=["upload"])
+@miBot.message_handler(commands=["up"])
 def cmd_sendfile(message):
     try:
         file_name = message.text[7:].strip()
@@ -325,7 +336,7 @@ def cmd_run_js(message):
     except Exception as e:
         miBot.reply_to(message, f"Error: {str(e)}")
 
-@miBot.message_handler(commands=["activos"])
+@miBot.message_handler(commands=["act"])
 def cmd_processes_activ(message):
     dict_as_string = str(processes_list)
     miBot.reply_to(message, dict_as_string)
