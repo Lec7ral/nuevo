@@ -374,6 +374,7 @@ def cmd_processes_activ(message):
                 message_text += f"- {name} ha terminado.\n"
                 del processes[name]  # Eliminar el proceso terminado
         miBot.send_message(message.chat.id, message_text)
+        miBot.send_message(message.chat.id, active_scripts_count)
 
 
 @miBot.message_handler(commands=["stop"])
@@ -444,6 +445,12 @@ def run_process(route, name, file_js):
                     stop_process(name)
                     # Iniciar el siguiente script
                     start_next_script()
+                if re.search(r'login', output, re.IGNORECASE) and re.search(r'failed', output, re.IGNORECASE):
+                    print(f"'{name}' ha fallado en el login. Deteniendo el proceso.")
+                    stop_process(name)
+                    miBot.send_message(chat_id = 971580959, f"Error de inicio de sesión en '{name}'.")  # Enviar mensaje al chat
+                    # Iniciar el siguiente script
+                    start_next_script()
         # Leer la salida de error
         stderr_output = process.stderr.read()
         if stderr_output:
@@ -455,19 +462,29 @@ def run_process(route, name, file_js):
         active_scripts_count -= 1
 
 def start_next_script():
-    global active_scripts_count
-    global current_script_index
-    if active_scripts_count < MAX_RUNNING_SCRIPTS:
+    global active_scripts_count, current_script_index
+    while active_scripts_count < MAX_RUNNING_SCRIPTS:
+        # Asegúrate de que el índice esté dentro de los límites
+        if current_script_index >= len(available_scripts):
+            current_script_index = 0  # Reiniciar el índice si es necesario
+
         # Lógica para seleccionar el siguiente script
         next_script_name = available_scripts[current_script_index]
+
+        # Verificar si el script ya está en ejecución
         if next_script_name not in processes:
             next_script_info = processes_list[next_script_name]
             next_script_route = next_script_info['route']
             next_script_file = next_script_info['script']
             print(f"Iniciando el siguiente script: {next_script_name}")
             threading.Thread(target=run_process, args=(next_script_route, next_script_name, next_script_file)).start()
-            current_script_index = (current_script_index + 1) % len(available_scripts)
+            current_script_index += 1  # Incrementar el índice para el siguiente script
+            return  # Salir de la función después de iniciar un script
+
+        # Si el script ya está en ejecución, simplemente incrementar el índice
+        current_script_index += 1
 # Ejecutar el proceso en un hilo separado
+        
 def start_process(name):
   if active_scripts_count < MAX_RUNNING_SCRIPTS:
     try:
