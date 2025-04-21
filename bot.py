@@ -19,6 +19,15 @@ miBot = telebot.TeleBot(BOT_API)
 miBot.remove_webhook()
 miBot.set_webhook(url=url)
 
+# Variables globales
+MAX_RUNNING_SCRIPTS = 6
+active_scripts_count = 0
+processes = {}  # Procesos activos
+processes_list = {}  # Scripts disponibles
+available_scripts = []  # Lista de scripts disponibles
+current_script_index = 0  # Índice del script actual
+
+
 app = Flask(__name__)
 @app.route('/', methods=['GET', 'POST'])
 def webhook():
@@ -68,9 +77,6 @@ def cmd_enserio(message):
 
 
 
-
-
-processes_list = {}
 
 def create_process_buttons():
     """Crea botones para los procesos en ejecución."""
@@ -400,10 +406,9 @@ def change_dir():
     process = subprocess.Popen(['node', script], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     pid = process.pid
  """
-# Diccionario para almacenar los procesos
-processes = {}
 
 def run_process(route, name, file_js):
+    global active_scripts_count
     """Inicia un proceso y lo almacena en el diccionario, leyendo la salida en tiempo real."""
     try:
         os.chdir(route)
@@ -411,7 +416,7 @@ def run_process(route, name, file_js):
         process = subprocess.Popen(['node', file_js], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         processes[name] = process
         print(f"Proceso '{name}' iniciado.")
-
+        active_scripts_count += 1
         # Leer la salida y errores en tiempo real
         while True:
             output = process.stdout.readline()  # Leer una línea de la salida estándar
@@ -419,7 +424,11 @@ def run_process(route, name, file_js):
                 break  # Salir si el proceso ha terminado
             if output:
                 print(output.strip())  # Imprimir la salida
-
+                if "Waiting" in output:
+                    print(f"'{name}' está en espera. Deteniendo el proceso.")
+                    stop_process(name)
+                    # Iniciar el siguiente script
+                    start_next_script()
         # Leer la salida de error
         stderr_output = process.stderr.read()
         if stderr_output:
@@ -427,20 +436,34 @@ def run_process(route, name, file_js):
 
     except Exception as e:
         print(f"Se produjo un error: {e}")
+    finally:
+        active_scripts_count -= 1
 
+def start_next_script():
+    global active_scripts_count
+    if active_scripts_count < MAX_RUNNING_SCRIPTS:
+        # Lógica para seleccionar el siguiente script
+        next_script_name = available_scripts[current_script_index]
+        if next_script_name not in processes:
+            next_script_info = processes_list[next_script_name]
+            next_script_route = next_script_info['route']
+            next_script_file = next_script_info['script']
+            print(f"Iniciando el siguiente script: {next_script_name}")
+            threading.Thread(target=run_process, args=(next_script_route, next_script_name, next_script_file)).start()
+            current_script_index = (current_script_index + 1) % len(available_scripts)
 # Ejecutar el proceso en un hilo separado
 def start_process(name):
-    print('fue llamado')
+  if active_scripts_count < MAX_RUNNING_SCRIPTS:
     try:
         process_info = processes_list[name]
-        print(process_info)
         script_name = process_info['script']
-        print(script_name)
         script_route = process_info['route']
         threading.Thread(target=run_process, args=(script_route, name, script_name)).start()
     except Exception as e:
         print(e)
-
+  else:
+        print("Límite de scripts en ejecución alcanzado. Esperando para iniciar el script.")
+      
 def stop_process(name):
     """Detiene un proceso específico."""
     if name in processes:
