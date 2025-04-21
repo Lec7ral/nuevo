@@ -441,6 +441,7 @@ def run_process(route, name, file_js):
 
 def start_next_script():
     global active_scripts_count
+    global current_script_index
     if active_scripts_count < MAX_RUNNING_SCRIPTS:
         # Lógica para seleccionar el siguiente script
         next_script_name = available_scripts[current_script_index]
