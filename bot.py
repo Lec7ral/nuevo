@@ -117,6 +117,7 @@ def handle_query(call):
     miBot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=keyboard)
     
 def add_process(message):
+    global available_scripts
     """Agrega un nuevo proceso a la lista."""
     try:
         #script_info = message.text.split(',')
@@ -141,6 +142,7 @@ def add_process(message):
             'script' : "meomundep.js",
             'route' : absolute_file_path
         }
+        available_scripts = list(processes_list.keys())
     except Exception as e:
         miBot.send_message(message.chat.id, f"Error al agregar el proceso: {e}")
 
@@ -293,6 +295,19 @@ def cmd_unzip(message):
         miBot.reply_to(message, "Por favor, proporciona el nombre del archivo ZIP a descomprimir.")
     except Exception as e:
         miBot.reply_to(message, f"Error: {str(e)}")
+
+@miBot.message_handler(commands=["del"])
+def handle_del_process(message):
+    global available_scripts
+    try:
+        to_del = message.text[4:].strip()
+        del processes_list[to_del]
+        available_scripts = list(processes_list.keys())
+        miBot.send_message(message.chat.id, f"Proceso {to_del} eliminado")
+    except Exception as e:
+            miBot.reply_to(message, f"Error al eliminar el proceso: {str(e)}")
+        
+        
 
 @miBot.message_handler(content_types=['document'])
 def handle_document(message):
