@@ -433,6 +433,7 @@ def run_process(route, name, file_js):
         processes[name] = process
         print(f"Proceso '{name}' iniciado.")
         active_scripts_count += 1
+
         # Leer la salida y errores en tiempo real
         while True:
             output = process.stdout.readline()  # Leer una línea de la salida estándar
@@ -451,10 +452,11 @@ def run_process(route, name, file_js):
                     miBot.send_message(971580959, f"Error de inicio de sesión en '{name}'.")  # Enviar mensaje al chat
                     # Iniciar el siguiente script
                     start_next_script()
+
         # Leer la salida de error
         stderr_output = process.stderr.read()
         if stderr_output:
-            print(stderr_output.strip())
+            print("Error de salida:", stderr_output.strip())  # Imprimir errores
 
     except Exception as e:
         print(f"Se produjo un error: {e}")
