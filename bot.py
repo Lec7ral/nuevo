@@ -448,10 +448,10 @@ def run_process(route, name, file_js):
                     start_next_script()
                 try:
                     if re.search(r'login', output, re.IGNORECASE) and re.search(r'failed', output, re.IGNORECASE):
-                    print(f"'{name}' ha fallado en el login. Deteniendo el proceso.")
-                    stop_process(name)
-                    miBot.send_message(971580959, f"Error de inicio de sesión en '{name}'.")  # Enviar mensaje al chat
-                    start_next_script()
+                        print(f"'{name}' ha fallado en el login. Deteniendo el proceso.")
+                        stop_process(name)
+                        miBot.send_message(971580959, f"Error de inicio de sesión en '{name}'.")  # Enviar mensaje al chat
+                        start_next_script()
                 except Exception as e:
                     print(e)
                     
