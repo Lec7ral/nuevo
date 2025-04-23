@@ -432,6 +432,7 @@ def run_process(route, name, file_js):
         process = subprocess.Popen(['node', file_js], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         processes[name] = process
         print(f"Proceso '{name}' iniciado.")
+        active_scripts_count += 1
         
 
         # Leer la salida y errores en tiempo real
@@ -483,8 +484,7 @@ def start_next_script():
             next_script_file = next_script_info['script']
             print(f"Iniciando el siguiente script: {next_script_name}")
             threading.Thread(target=run_process, args=(next_script_route, next_script_name, next_script_file)).start()
-            current_script_index += 1
-            active_scripts_count += 1 # Incrementar el índice para el siguiente script
+            current_script_index += 1 # Incrementar el índice para el siguiente script
             return  # Salir de la función después de iniciar un script
 
         # Si el script ya está en ejecución, simplemente incrementar el índice
