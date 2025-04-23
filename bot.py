@@ -463,7 +463,8 @@ def run_process(route, name, file_js):
     except Exception as e:
         print(f"Se produjo un error: {e}")
     finally:
-        active_scripts_count -= 1
+        with threading.Lock():
+            active_scripts_count -= 1
 
 def start_next_script():
     global active_scripts_count, current_script_index
