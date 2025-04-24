@@ -343,8 +343,8 @@ def handle_document(message):
             if not os.path.isfile(full_script_path):
                 miBot.send_message(message.chat.id, f"Error: El script '{full_script_path}' no existe.")
                 return
-            if process_name in processes_list:
-                miBot.send_message(message.chat.id, f"El script para {process_name} ya existe")
+            if folder_name in processes_list:
+                miBot.send_message(message.chat.id, f"El script para {folder_name} ya existe")
                 return
             processes_list[folder_name] = {
                 'script' : "meomundep.js",
