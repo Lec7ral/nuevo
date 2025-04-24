@@ -1,7 +1,7 @@
 from flask import Flask, request, render_template, url_for, send_file
 import asyncio
 import telebot
-import os, shutil, zipfile, glob, re
+import os, shutil, zipfile, glob, re, time
 from pathlib import Path
 import asyncio, shlex
 from typing import Tuple
@@ -20,7 +20,7 @@ miBot.remove_webhook()
 miBot.set_webhook(url=url)
 
 # Variables globales
-MAX_RUNNING_SCRIPTS = 6
+MAX_RUNNING_SCRIPTS = 4
 active_scripts_count = 0
 processes = {}  # Procesos activos
 processes_list = {}  # Scripts disponibles
@@ -314,6 +314,7 @@ def handle_del_process(message):
 
 @miBot.message_handler(content_types=['document'])
 def handle_document(message):
+    global available_scripts
     file_info = miBot.get_file(message.document.file_id)
     downloaded_file = miBot.download_file(file_info.file_path)
     
@@ -328,11 +329,28 @@ def handle_document(message):
         try:
             # Descomprimir el archivo .zip
             zip_file = message.document.file_name
+            folder_name = os.path.splitext(zip_file)[0]
             shutil.unpack_archive(zip_file, zip_file.replace('.zip', ''))  # Extraer en una carpeta con el mismo nombre sin .zip
             
             # Eliminar el archivo .zip
             os.remove(zip_file)
             miBot.reply_to(message, f"Archivo '{zip_file}' descomprimido y eliminado.")
+             # Construir la ruta completa del script
+            full_script_path = os.path.join(ABSOLUTE_PATH, folder_name, "meomundep.js")
+            absolute_file_path = os.path.join(ABSOLUTE_PATH, folder_name)
+    
+            # Verificar si el script existe
+            if not os.path.isfile(full_script_path):
+                miBot.send_message(message.chat.id, f"Error: El script '{full_script_path}' no existe.")
+                return
+            if process_name in processes_list:
+                miBot.send_message(message.chat.id, f"El script para {process_name} ya existe")
+                return
+            processes_list[folder_name] = {
+                'script' : "meomundep.js",
+                'route' : absolute_file_path
+                }
+        available_scripts = list(processes_list.keys())
         except IndexError:
             miBot.reply_to(message, "Por favor, proporciona el nombre del archivo ZIP a descomprimir.")
         except Exception as e:
@@ -473,6 +491,7 @@ def run_process(route, name, file_js):
 def start_next_script():
     global active_scripts_count, current_script_index
     while active_scripts_count < MAX_RUNNING_SCRIPTS:
+        time.sleep(1200)
         # Asegúrate de que el índice esté dentro de los límites
         if current_script_index >= len(available_scripts):
             current_script_index = 0  # Reiniciar el índice si es necesario
@@ -488,6 +507,7 @@ def start_next_script():
             print(f"Iniciando el siguiente script: {next_script_name}")
             threading.Thread(target=run_process, args=(next_script_route, next_script_name, next_script_file)).start()
             current_script_index += 1 # Incrementar el índice para el siguiente script
+            
             return  # Salir de la función después de iniciar un script
 
         # Si el script ya está en ejecución, simplemente incrementar el índice
