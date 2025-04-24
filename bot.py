@@ -350,7 +350,7 @@ def handle_document(message):
                 'script' : "meomundep.js",
                 'route' : absolute_file_path
                 }
-        available_scripts = list(processes_list.keys())
+            available_scripts = list(processes_list.keys())
         except IndexError:
             miBot.reply_to(message, "Por favor, proporciona el nombre del archivo ZIP a descomprimir.")
         except Exception as e:
