@@ -1,7 +1,7 @@
 from flask import Flask, request, render_template, url_for, send_file
 import asyncio
 import telebot
-import os, shutil, zipfile, glob
+import os, shutil, zipfile, glob, re, time
 from pathlib import Path
 import asyncio, shlex
 from typing import Tuple
@@ -18,6 +18,15 @@ ABSOLUTE_PATH = os.getcwd()
 miBot = telebot.TeleBot(BOT_API)
 miBot.remove_webhook()
 miBot.set_webhook(url=url)
+
+# Variables globales
+MAX_RUNNING_SCRIPTS = 4
+active_scripts_count = 0
+processes = {}  # Procesos activos
+processes_list = {}  # Scripts disponibles
+available_scripts = []  # Lista de scripts disponibles
+current_script_index = 0  # Índice del script actual
+
 
 app = Flask(__name__)
 @app.route('/', methods=['GET', 'POST'])
@@ -69,9 +78,6 @@ def cmd_enserio(message):
 
 
 
-
-processes_list = {}
-
 def create_process_buttons():
     """Crea botones para los procesos en ejecución."""
     keyboard = telebot.types.InlineKeyboardMarkup()
@@ -111,6 +117,7 @@ def handle_query(call):
     miBot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=keyboard)
     
 def add_process(message):
+    global available_scripts
     """Agrega un nuevo proceso a la lista."""
     try:
         #script_info = message.text.split(',')
@@ -127,6 +134,9 @@ def add_process(message):
         if not os.path.isfile(full_script_path):
             miBot.send_message(message.chat.id, f"Error: El script '{full_script_path}' no existe.")
             return
+        if process_name in processes_list:
+            miBot.send_message(message.chat.id, f"El script para {process_name} ya existe")
+            return
 
         # Iniciar el proceso
         threading.Thread(target=run_process, args=(absolute_file_path, process_name, "meomundep.js")).start()
@@ -135,6 +145,7 @@ def add_process(message):
             'script' : "meomundep.js",
             'route' : absolute_file_path
         }
+        available_scripts = list(processes_list.keys())
     except Exception as e:
         miBot.send_message(message.chat.id, f"Error al agregar el proceso: {e}")
 
@@ -173,7 +184,16 @@ def cmd_modules(message):
     miBot.reply_to(message, "Instalando módulos...")
     miBot.reply_to(message, f"{res}")
 
-
+@miBot.message_handler(commands=["max"])
+def cmd_modules(message):
+    global MAX_RUNNING_SCRIPTS
+    number = message.text.split()[1:]  # Ignora el primer elemento que es el comando
+    if not number:
+        miBot.reply_to(message, "Por favor, proporciona un numero valido.")
+        return
+    
+    MAX_RUNNING_SCRIPTS = number
+    miBot.reply_to(message, f"Maximo cambiado a {number}")
 
 @miBot.message_handler(commands=["help"])
 def cmd_help(message):
@@ -288,8 +308,22 @@ def cmd_unzip(message):
     except Exception as e:
         miBot.reply_to(message, f"Error: {str(e)}")
 
+@miBot.message_handler(commands=["del"])
+def handle_del_process(message):
+    global available_scripts
+    try:
+        to_del = message.text[4:].strip()
+        del processes_list[to_del]
+        available_scripts = list(processes_list.keys())
+        miBot.send_message(message.chat.id, f"Proceso {to_del} eliminado")
+    except Exception as e:
+            miBot.reply_to(message, f"Error al eliminar el proceso: {str(e)}")
+        
+        
+
 @miBot.message_handler(content_types=['document'])
 def handle_document(message):
+    global available_scripts
     file_info = miBot.get_file(message.document.file_id)
     downloaded_file = miBot.download_file(file_info.file_path)
     
@@ -304,11 +338,28 @@ def handle_document(message):
         try:
             # Descomprimir el archivo .zip
             zip_file = message.document.file_name
+            folder_name = os.path.splitext(zip_file)[0]
             shutil.unpack_archive(zip_file, zip_file.replace('.zip', ''))  # Extraer en una carpeta con el mismo nombre sin .zip
             
             # Eliminar el archivo .zip
             os.remove(zip_file)
             miBot.reply_to(message, f"Archivo '{zip_file}' descomprimido y eliminado.")
+             # Construir la ruta completa del script
+            full_script_path = os.path.join(ABSOLUTE_PATH, folder_name, "meomundep.js")
+            absolute_file_path = os.path.join(ABSOLUTE_PATH, folder_name)
+    
+            # Verificar si el script existe
+            if not os.path.isfile(full_script_path):
+                miBot.send_message(message.chat.id, f"Error: El script '{full_script_path}' no existe.")
+                return
+            if folder_name in processes_list:
+                miBot.send_message(message.chat.id, f"El script para {folder_name} ya existe")
+                return
+            processes_list[folder_name] = {
+                'script' : "meomundep.js",
+                'route' : absolute_file_path
+                }
+            available_scripts = list(processes_list.keys())
         except IndexError:
             miBot.reply_to(message, "Por favor, proporciona el nombre del archivo ZIP a descomprimir.")
         except Exception as e:
@@ -353,6 +404,7 @@ def cmd_processes_activ(message):
                 message_text += f"- {name} ha terminado.\n"
                 del processes[name]  # Eliminar el proceso terminado
         miBot.send_message(message.chat.id, message_text)
+        miBot.send_message(message.chat.id, active_scripts_count)
 
 
 @miBot.message_handler(commands=["stop"])
@@ -400,10 +452,9 @@ def change_dir():
     process = subprocess.Popen(['node', script], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     pid = process.pid
  """
-# Diccionario para almacenar los procesos
-processes = {}
 
 def run_process(route, name, file_js):
+    global active_scripts_count
     """Inicia un proceso y lo almacena en el diccionario, leyendo la salida en tiempo real."""
     try:
         os.chdir(route)
@@ -411,6 +462,8 @@ def run_process(route, name, file_js):
         process = subprocess.Popen(['node', file_js], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         processes[name] = process
         print(f"Proceso '{name}' iniciado.")
+        active_scripts_count += 1
+        
 
         # Leer la salida y errores en tiempo real
         while True:
@@ -419,28 +472,71 @@ def run_process(route, name, file_js):
                 break  # Salir si el proceso ha terminado
             if output:
                 print(output.strip())  # Imprimir la salida
-
+                if "Waiting" in output:
+                    print(f"'{name}' está en espera. Deteniendo el proceso.")
+                    stop_process(name)
+                    # Iniciar el siguiente script
+                    start_next_script()
+                if "Bot broken somewhere" in output:
+                    print(f"'{name}' se rompio. Deteniendo el proceso.")
+                    stop_process(name)
+                    # Iniciar el siguiente script
+                    start_next_script()
+                try:
+                    if re.search(r'login', output, re.IGNORECASE) and re.search(r'failed', output, re.IGNORECASE):
+                        print(f"'{name}' ha fallado en el login. Deteniendo el proceso.")
+                        stop_process(name)
+                        miBot.send_message(971580959, f"Error de inicio de sesión en '{name}'.")  # Enviar mensaje al chat
+                        start_next_script()
+                except Exception as e:
+                    print(e)
+                    
         # Leer la salida de error
         stderr_output = process.stderr.read()
         if stderr_output:
-            print(stderr_output.strip())
+            print("Error de salida:", stderr_output.strip())  # Imprimir errores
 
     except Exception as e:
         print(f"Se produjo un error: {e}")
+    finally:
+        with threading.Lock():
+            active_scripts_count -= 1
 
+def start_next_script():
+    global active_scripts_count, current_script_index
+    while active_scripts_count < MAX_RUNNING_SCRIPTS:
+        time.sleep(1200)
+        # Asegúrate de que el índice esté dentro de los límites
+        if current_script_index >= len(available_scripts):
+            current_script_index = 0  # Reiniciar el índice si es necesario
+
+        # Lógica para seleccionar el siguiente script
+        next_script_name = available_scripts[current_script_index]
+
+        # Verificar si el script ya está en ejecución
+        if next_script_name not in processes:
+            next_script_info = processes_list[next_script_name]
+            next_script_route = next_script_info['route']
+            next_script_file = next_script_info['script']
+            print(f"Iniciando el siguiente script: {next_script_name}")
+            threading.Thread(target=run_process, args=(next_script_route, next_script_name, next_script_file)).start()
+            current_script_index += 1 # Incrementar el índice para el siguiente script
+            
+            return  # Salir de la función después de iniciar un script
+
+        # Si el script ya está en ejecución, simplemente incrementar el índice
+        current_script_index += 1
 # Ejecutar el proceso en un hilo separado
+        
 def start_process(name):
-    print('fue llamado')
     try:
         process_info = processes_list[name]
-        print(process_info)
         script_name = process_info['script']
-        print(script_name)
         script_route = process_info['route']
         threading.Thread(target=run_process, args=(script_route, name, script_name)).start()
     except Exception as e:
         print(e)
-
+      
 def stop_process(name):
     """Detiene un proceso específico."""
     if name in processes:
