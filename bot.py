@@ -184,7 +184,16 @@ def cmd_modules(message):
     miBot.reply_to(message, "Instalando módulos...")
     miBot.reply_to(message, f"{res}")
 
-
+@miBot.message_handler(commands=["max"])
+def cmd_modules(message):
+    global MAX_RUNNING_SCRIPTS
+    number = message.text.split()[1:]  # Ignora el primer elemento que es el comando
+    if not number:
+        miBot.reply_to(message, "Por favor, proporciona un numero valido.")
+        return
+    
+    MAX_RUNNING_SCRIPTS = number
+    miBot.reply_to(message, f"Maximo cambiado a {number}")
 
 @miBot.message_handler(commands=["help"])
 def cmd_help(message):
@@ -465,6 +474,11 @@ def run_process(route, name, file_js):
                 print(output.strip())  # Imprimir la salida
                 if "Waiting" in output:
                     print(f"'{name}' está en espera. Deteniendo el proceso.")
+                    stop_process(name)
+                    # Iniciar el siguiente script
+                    start_next_script()
+                if "broken with my bot" in output:
+                    print(f"'{name}' se rompio. Deteniendo el proceso.")
                     stop_process(name)
                     # Iniciar el siguiente script
                     start_next_script()
