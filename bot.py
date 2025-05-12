@@ -477,7 +477,7 @@ def run_process(route, name, file_js):
                     stop_process(name)
                     # Iniciar el siguiente script
                     start_next_script()
-                if "broken with my bot" in output:
+                if "Bot broken somewhere" in output:
                     print(f"'{name}' se rompio. Deteniendo el proceso.")
                     stop_process(name)
                     # Iniciar el siguiente script
