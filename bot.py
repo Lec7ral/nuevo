@@ -103,11 +103,9 @@ class ProcessManager:
 process_manager = ProcessManager()
 
 # Configurar webhook solo una vez al inicio
-@app.before_first_request
-def setup_webhook():
+with app.app_context():
     miBot.remove_webhook()
     miBot.set_webhook(url=URL)
-    logger.info("Webhook configurado")
 
 # Rutas Flask optimizadas
 @app.route('/', methods=['GET', 'POST'])
