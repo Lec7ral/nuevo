@@ -7,3 +7,4 @@ dir2pdf==0.0.3
 tldextract==3.1.0
 cython
 lxml
+
