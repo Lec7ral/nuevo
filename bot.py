@@ -2,8 +2,8 @@ import os
 import threading
 import subprocess
 import shutil
+import time
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from flask import Flask, request, render_template, url_for, send_file
 import telebot
@@ -15,277 +15,175 @@ URL = 'https://nuevo-uf5s.onrender.com'
 ABSOLUTE_PATH = os.getcwd()
 
 # Configuración de logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Inicialización
 app = Flask(__name__)
-miBot = telebot.TeleBot(BOT_API)
+miBot = telebot.TeleBot(BOT_API, parse_mode=None)  # Deshabilitar parse_mode por defecto
 
-# Gestor de procesos mejorado
-class ProcessManager:
-    def __init__(self):
-        self.processes = {}
-        self.processes_list = {}
-        self.executor = ThreadPoolExecutor(max_workers=10)
-        self.lock = threading.Lock()
-    
-    def run_process(self, route, name, file_js):
-        """Ejecuta proceso de manera más eficiente"""
-        try:
-            process = subprocess.Popen(
-                ['node', file_js], 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE, 
-                universal_newlines=True,
-                cwd=route,
-                bufsize=1
-            )
-            
-            with self.lock:
-                self.processes[name] = process
-            
-            # Leer output de forma no bloqueante
-            threading.Thread(
-                target=self._capture_output, 
-                args=(process, name),
-                daemon=True
-            ).start()
-            
-            logger.info(f"Proceso '{name}' iniciado en {route}")
-            return True
-        except Exception as e:
-            logger.error(f"Error ejecutando proceso {name}: {e}")
-            return False
-    
-    def _capture_output(self, process, name):
-        """Captura output del proceso sin bloquear"""
-        while process.poll() is None:
-            try:
-                output = process.stdout.readline()
-                if output:
-                    logger.info(f"[{name}] {output.strip()}")
-            except Exception as e:
-                logger.error(f"Error leyendo output de {name}: {e}")
-                break
-
-    def stop_process(self, name):
-        """Detiene un proceso específico de manera segura"""
-        with self.lock:
-            if name in self.processes:
-                try:
-                    process = self.processes[name]
-                    process.terminate()
-                    process.wait(timeout=5)
-                    del self.processes[name]
-                    logger.info(f"Proceso '{name}' detenido correctamente")
-                    return True
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
-                    del self.processes[name]
-                    logger.warning(f"Proceso '{name}' forzado a detenerse")
-                    return True
-                except Exception as e:
-                    logger.error(f"Error deteniendo proceso '{name}': {e}")
-                    return False
-            return False
-
-    def get_process_status(self):
-        """Obtiene estado de todos los procesos"""
-        status = {}
-        with self.lock:
-            for name, process in self.processes.items():
-                status[name] = "🟢" if process.poll() is None else "🔴"
-        return status
-
-# Instancia global del gestor de procesos
-process_manager = ProcessManager()
-
-# Configurar webhook solo una vez al inicio
+# Configurar webhook al inicio (reemplaza before_first_request)
 with app.app_context():
     miBot.remove_webhook()
     miBot.set_webhook(url=URL)
+    logger.info("Webhook configurado")
 
-# Rutas Flask optimizadas
+# Diccionarios para gestión de procesos
+processes = {}
+processes_list = {}
+
+# Rutas Flask
 @app.route('/', methods=['GET', 'POST'])
 def webhook():
     if request.method == 'POST':
         update = telebot.types.Update.de_json(request.stream.read().decode('utf-8'))
         miBot.process_new_updates([update])
         return 'ok', 200
-    return 'Hello, World!'
+    else:
+        return 'Hello, World!'
 
 @app.route('/files')
-@app.route('/files/<path:path>')
-def list_files(path='.'):
-    """Unifica navegación de archivos"""
-    try:
-        if not os.path.exists(path):
-            return "Path no encontrado", 404
-        
-        files = []
-        parent_path = os.path.dirname(path) if path != '.' else None
-        
-        for item in sorted(os.listdir(path)):
-            item_path = os.path.join(path, item)
-            if os.path.isdir(item_path):
-                files.append((f"📁 {item}/", url_for('list_files', path=item_path)))
-            else:
-                files.append((f"📄 {item}", url_for('serve_file', path=item_path)))
-        
-        return render_template('files.html', 
-                             files=files, 
-                             current_path=path,
-                             parent_path=parent_path)
-    except Exception as e:
-        logger.error(f"Error listando archivos: {e}")
-        return f"Error: {str(e)}", 500
+def list_files():
+    files = os.listdir('.')
+    files_with_links = []
+    for file in files:
+        file_path = os.path.join('.', file)
+        if os.path.isdir(file_path):
+            files_with_links.append((file + '/', url_for('navigate_folder', path=file_path)))
+        else:
+            files_with_links.append((file, url_for('serve_file', path=file_path)))
+    return render_template('files.html', files=files_with_links, current_path='.')
 
 @app.route('/files/download/<path:path>')
 def serve_file(path):
     return send_file(path, as_attachment=True)
 
-# Funciones de utilidad
-def async_send_message(chat_id, text):
-    """Envía mensajes de forma asíncrona"""
-    def send():
-        try:
-            miBot.send_message(chat_id, text)
-        except Exception as e:
-            logger.error(f"Error enviando mensaje: {e}")
-    
-    threading.Thread(target=send, daemon=True).start()
+@app.route('/files/<path:path>')
+def navigate_folder(path):
+    files = os.listdir(path)
+    files_with_links = []
+    for file in files:
+        file_path = os.path.join(path, file)
+        if os.path.isdir(file_path):
+            files_with_links.append((file + '/', url_for('navigate_folder', path=file_path)))
+        else:
+            files_with_links.append((file, url_for('serve_file', path=file_path)))
+    return render_template('files.html', files=files_with_links, current_path=path)
 
-def run_async_task(func, *args, **kwargs):
-    """Ejecuta tareas en segundo plano"""
-    threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True).start()
-
-# Comandos simples del bot
+# Comandos básicos del bot
 @miBot.message_handler(commands=["start"])
 def cmd_start(message):
     miBot.send_message(message.chat.id, "✅ Bot funcionando correctamente")
 
 @miBot.message_handler(commands=["enserio"])
 def cmd_enserio(message):
-    miBot.reply_to(message, "¡Sí, completamente en serio! 😄")
+    miBot.reply_to(message, "¡Pos mira que sí! 😄")
 
-@miBot.message_handler(commands=["help"])
-def cmd_help(message):
-    help_text = """
-🤖 **Comandos disponibles:**
-
-**Básicos:**
-/start - Iniciar el bot
-/enserio - Respuesta divertida
-/help - Muestra esta ayuda
-
-**Gestión de archivos:**
-/ls [ruta] - Listar archivos y carpetas
-/mkdir <nombre> - Crear carpeta
-/cd <ruta> - Cambiar directorio
-/rm <nombre> - Eliminar archivo/carpeta
-/mv <origen> <destino> - Mover
-/zip <carpeta> - Comprimir
-/unzip <archivo> - Descomprimir
-/up <archivo> - Subir archivo
-
-**Procesos Node.js:**
-/inst - Instalar entorno Node.js
-/modules <módulos> - Instalar módulos
-/run <nombre> - Ejecutar script
-/act - Procesos activos
-/stop <nombre> - Detener proceso
-/list - Listar procesos con botones
-
-**Web:**
-/files - Explorador de archivos web
-    """
-    miBot.send_message(message.chat.id, help_text, parse_mode='Markdown')
-
-# Gestión de procesos con botones
+# Gestión de procesos con botones - VERSIÓN CORREGIDA
 def create_process_buttons():
-    """Crea botones para los procesos"""
+    """Crea botones para los procesos en ejecución."""
     keyboard = telebot.types.InlineKeyboardMarkup()
-    status = process_manager.get_process_status()
     
-    for name in process_manager.processes_list.keys():
-        btn_status = status.get(name, "🔴")
+    # Agregar timestamp para evitar mensajes idénticos
+    current_time = int(time.time())
+    
+    for name in processes_list.keys():
+        if name in processes:
+            status = "🟢" if processes[name].poll() is None else "🔴"
+        else:
+            status = "🔴"
+        
+        # Incluir timestamp en callback_data para hacerlo único
         keyboard.add(telebot.types.InlineKeyboardButton(
-            f"{btn_status} {name}", 
-            callback_data=f"process_{name}"
+            f"{status} {name}", 
+            callback_data=f"{name}_{current_time}"
         ))
     
     keyboard.add(telebot.types.InlineKeyboardButton(
         "➕ Agregar Proceso", 
-        callback_data="add_process"
+        callback_data=f"add_process_{current_time}"
     ))
     return keyboard
 
 @miBot.message_handler(commands=['list'])
 def list_processes(message):
-    """Muestra procesos con botones interactivos"""
+    """Muestra los procesos en ejecución con botones."""
     keyboard = create_process_buttons()
-    miBot.send_message(message.chat.id, "🔧 **Gestión de Procesos:**", 
-                      reply_markup=keyboard, parse_mode='Markdown')
+    miBot.send_message(message.chat.id, "🔧 **Gestión de Procesos:**", reply_markup=keyboard)
 
 @miBot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
-    """Maneja interacciones con botones"""
-    if call.data == "add_process":
-        miBot.send_message(call.message.chat.id, 
-                          "📝 Envía el nombre de la carpeta del proceso:")
-        miBot.register_next_step_handler(call.message, add_process_step)
-    
-    elif call.data.startswith("process_"):
-        process_name = call.data[8:]  # Remueve "process_" prefix
-        if process_name in process_manager.processes:
-            if process_manager.stop_process(process_name):
-                async_send_message(call.message.chat.id, f"⏹️ Proceso '{process_name}' detenido")
-            else:
-                async_send_message(call.message.chat.id, f"❌ Error deteniendo '{process_name}'")
-        else:
-            # Intentar iniciar el proceso
-            if process_name in process_manager.processes_list:
-                start_process(process_name)
-                async_send_message(call.message.chat.id, f"▶️ Proceso '{process_name}' iniciado")
-    
-    # Actualizar botones
+    """Maneja las interacciones con los botones - VERSIÓN CORREGIDA"""
     try:
-        keyboard = create_process_buttons()
-        miBot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, 
-                                      reply_markup=keyboard)
-    except Exception as e:
-        logger.error(f"Error actualizando botones: {e}")
+        # Extraer el nombre real del callback_data (ignorar timestamp)
+        callback_data = call.data
+        if '_' in callback_data and not callback_data.startswith('add_process'):
+            base_data = callback_data.rsplit('_', 1)[0]
+        else:
+            base_data = callback_data.split('_')[0] if '_' in callback_data else callback_data
 
-def add_process_step(message):
-    """Agrega nuevo proceso paso a paso"""
+        if base_data == "add_process":
+            miBot.send_message(call.message.chat.id, "📝 Envía el nombre de la carpeta del proceso:")
+            miBot.register_next_step_handler(call.message, add_process)
+        
+        elif base_data in processes_list:
+            process = processes.get(base_data)
+            if process and process.poll() is None:
+                # Proceso está ejecutándose, detenerlo
+                if stop_process(base_data):
+                    miBot.answer_callback_query(call.id, f"⏹️ {base_data} detenido")
+                else:
+                    miBot.answer_callback_query(call.id, f"❌ Error deteniendo {base_data}")
+            else:
+                # Proceso no está ejecutándose, iniciarlo
+                if start_process(base_data):
+                    miBot.answer_callback_query(call.id, f"▶️ {base_data} iniciado")
+                else:
+                    miBot.answer_callback_query(call.id, f"❌ Error iniciando {base_data}")
+
+        # Actualizar la interfaz solo si es necesario
+        try:
+            new_keyboard = create_process_buttons()
+            miBot.edit_message_reply_markup(
+                call.message.chat.id,
+                call.message.message_id,
+                reply_markup=new_keyboard
+            )
+        except Exception as e:
+            if "message is not modified" not in str(e):
+                logger.warning(f"Error al actualizar botones: {e}")
+
+    except Exception as e:
+        logger.error(f"Error en handle_query: {e}")
+        miBot.answer_callback_query(call.id, "❌ Error procesando solicitud")
+
+def add_process(message):
+    """Agrega un nuevo proceso a la lista."""
     try:
         process_name = message.text.strip()
-        script_path = os.path.join(ABSOLUTE_PATH, process_name, "meomundep.js")
-        absolute_path = os.path.join(ABSOLUTE_PATH, process_name)
+        full_script_path = os.path.join(ABSOLUTE_PATH, process_name, "meomundep.js")
+        absolute_file_path = os.path.join(ABSOLUTE_PATH, process_name)
 
-        if not os.path.isfile(script_path):
-            miBot.send_message(message.chat.id, 
-                             f"❌ El script 'meomundep.js' no existe en {process_name}/")
+        if not os.path.isfile(full_script_path):
+            miBot.send_message(message.chat.id, f"❌ Error: El script '{full_script_path}' no existe.")
             return
 
-        process_manager.processes_list[process_name] = {
+        threading.Thread(target=run_process, args=(absolute_file_path, process_name, "meomundep.js")).start()
+        miBot.send_message(message.chat.id, f"✅ Proceso '{process_name}' agregado y en ejecución.")
+        processes_list[process_name] = {
             'script': "meomundep.js",
-            'route': absolute_path
+            'route': absolute_file_path
         }
-        
-        start_process(process_name)
-        miBot.send_message(message.chat.id, 
-                         f"✅ Proceso '{process_name}' agregado y en ejecución")
-    
     except Exception as e:
-        miBot.send_message(message.chat.id, f"❌ Error agregando proceso: {e}")
+        miBot.send_message(message.chat.id, f"❌ Error al agregar el proceso: {e}")
 
-# Comandos de instalación y módulos
+# Comandos de instalación
 @miBot.message_handler(commands=["inst"])
 def cmd_install(message):
-    """Instalación optimizada del entorno"""
+    """Instalación optimizada del entorno Node.js"""
     def install_task():
         try:
             steps = [
@@ -297,24 +195,23 @@ def cmd_install(message):
             ]
             
             for step_name, command in steps:
-                async_send_message(message.chat.id, step_name)
+                miBot.send_message(message.chat.id, step_name)
                 result = subprocess.run(command, capture_output=True, text=True, cwd=ABSOLUTE_PATH)
                 if result.returncode != 0:
-                    async_send_message(message.chat.id, 
-                                     f"❌ Error en {step_name}:\n{result.stderr}")
+                    miBot.send_message(message.chat.id, f"❌ Error en {step_name}:\n{result.stderr}")
                     return
             
-            async_send_message(message.chat.id, "✅ Instalación completada")
+            miBot.send_message(message.chat.id, "✅ Instalación completada")
             
         except Exception as e:
-            async_send_message(message.chat.id, f"❌ Error en instalación: {e}")
+            miBot.send_message(message.chat.id, f"❌ Error en instalación: {e}")
     
-    run_async_task(install_task)
+    threading.Thread(target=install_task, daemon=True).start()
     miBot.reply_to(message, "🚀 Iniciando instalación... Esto puede tomar unos minutos.")
 
 @miBot.message_handler(commands=["modules"])
 def cmd_modules(message):
-    """Instala módulos adicionales"""
+    """Instala módulos adicionales de Node.js"""
     modules_to_install = message.text.split()[1:]
     if not modules_to_install:
         miBot.reply_to(message, "📝 Uso: /modules <módulo1> <módulo2> ...")
@@ -322,28 +219,55 @@ def cmd_modules(message):
     
     def install_modules_task():
         try:
-            async_send_message(message.chat.id, f"📦 Instalando: {', '.join(modules_to_install)}")
+            miBot.send_message(message.chat.id, f"📦 Instalando: {', '.join(modules_to_install)}")
             result = subprocess.run(['npm', 'i'] + modules_to_install, 
                                  capture_output=True, text=True, cwd=ABSOLUTE_PATH)
             
             if result.returncode == 0:
-                async_send_message(message.chat.id, "✅ Módulos instalados correctamente")
+                miBot.send_message(message.chat.id, "✅ Módulos instalados correctamente")
                 if result.stdout:
-                    async_send_message(message.chat.id, f"📄 Output:\n{result.stdout[:1000]}...")
+                    # Limitar la longitud del output
+                    output_preview = result.stdout[:1000] + "..." if len(result.stdout) > 1000 else result.stdout
+                    miBot.send_message(message.chat.id, f"📄 Output:\n{output_preview}")
             else:
-                async_send_message(message.chat.id, f"❌ Error:\n{result.stderr}")
+                miBot.send_message(message.chat.id, f"❌ Error:\n{result.stderr}")
                 
         except Exception as e:
-            async_send_message(message.chat.id, f"❌ Error instalando módulos: {e}")
+            miBot.send_message(message.chat.id, f"❌ Error instalando módulos: {e}")
     
-    run_async_task(install_modules_task)
+    threading.Thread(target=install_modules_task, daemon=True).start()
 
-# Comandos de sistema de archivos
+# Comandos de sistema de archivos y procesos - VERSIÓN CORREGIDA
+@miBot.message_handler(commands=["help"])
+def cmd_help(message):
+    """Muestra ayuda - VERSIÓN CORREGIDA"""
+    help_text = """
+/start - Iniciar el bot
+/enserio - Respuesta divertida
+/inst - Instalar el entorno de Node.js
+/modules <módulos> - Instalar módulos de Node.js
+/ls [ruta] - Listar archivos y carpetas
+/mkdir <nombre> - Crear una carpeta
+/cd <nombre> - Cambiar de directorio
+/rm <nombre> - Eliminar un archivo o carpeta
+/mv <origen> <destino> - Mover un archivo o carpeta
+/zip <carpeta> - Comprimir una carpeta
+/unzip <archivo> - Descomprimir un archivo
+/up <nombre> - Subir archivo al chat
+/run <nombre> - Ejecutar un script de Node.js
+/act - Listar procesos activos
+/stop <nombre> - Detener un proceso específico
+/list - Gestión visual de procesos
+"""
+    # SOLUCIÓN: Usar parse_mode=None para texto plano
+    miBot.reply_to(message, help_text, parse_mode=None)
+
 @miBot.message_handler(commands=["ls"])
 def cmd_ls(message):
-    """Lista archivos y carpetas"""
+    """Lista archivos y carpetas - VERSIÓN CORREGIDA"""
     try:
         path = message.text[3:].strip() or '.'
+        
         if not os.path.exists(path):
             miBot.reply_to(message, f"❌ Ruta no existe: {path}")
             return
@@ -353,161 +277,144 @@ def cmd_ls(message):
             miBot.reply_to(message, f"📂 Directorio vacío: {path}")
             return
         
-        # Formatear respuesta
-        folders = [f"📁 {item}/" for item in items if os.path.isdir(os.path.join(path, item))]
-        files = [f"📄 {item}" for item in items if os.path.isfile(os.path.join(path, item))]
+        # Dividir en chunks para evitar mensajes demasiado largos
+        def split_list(lst, chunk_size=20):
+            for i in range(0, len(lst), chunk_size):
+                yield lst[i:i + chunk_size]
         
-        response = f"📂 Contenido de '{path}':\n\n"
-        if folders:
-            response += "**Carpetas:**\n" + "\n".join(folders) + "\n\n"
-        if files:
-            response += "**Archivos:**\n" + "\n".join(files)
+        chunks = list(split_list(sorted(items)))
         
-        # Dividir si es muy largo
-        if len(response) > 4000:
-            response = response[:4000] + "\n... (lista truncada)"
+        for i, chunk in enumerate(chunks):
+            response = f"📂 Página {i+1}/{len(chunks)} - {path}:\n\n"
             
-        miBot.reply_to(message, response, parse_mode='Markdown')
-        
+            for item in chunk:
+                item_path = os.path.join(path, item)
+                icon = "📁" if os.path.isdir(item_path) else "📄"
+                response += f"{icon} {item}\n"
+            
+            # Para el primer mensaje usar reply, para los siguientes send
+            if i == 0:
+                miBot.reply_to(message, response, parse_mode=None)
+            else:
+                miBot.send_message(message.chat.id, response, parse_mode=None)
+                
     except Exception as e:
-        miBot.reply_to(message, f"❌ Error listando archivos: {str(e)}")
+        miBot.reply_to(message, f"❌ Error: {str(e)}", parse_mode=None)
 
 @miBot.message_handler(commands=["mkdir"])
 def cmd_mkdir(message):
-    """Crea directorio"""
     try:
         folder_name = message.text[6:].strip()
         if not folder_name:
             miBot.reply_to(message, "📝 Uso: /mkdir <nombre_carpeta>")
             return
-        
+            
         os.makedirs(folder_name, exist_ok=True)
-        miBot.reply_to(message, f"✅ Carpeta '{folder_name}' creada")
-        
+        miBot.reply_to(message, f"✅ Carpeta '{folder_name}' creada.")
     except Exception as e:
-        miBot.reply_to(message, f"❌ Error creando carpeta: {str(e)}")
+        miBot.reply_to(message, f"❌ Error: {str(e)}")
 
 @miBot.message_handler(commands=["cd"])
 def cmd_cd(message):
-    """Cambia directorio"""
     try:
         dir_name = message.text[3:].strip()
         if not dir_name:
-            miBot.reply_to(message, "📝 Uso: /cd <ruta>")
+            miBot.reply_to(message, "📝 Uso: /cd <directorio>")
             return
-        
+            
         if not os.path.exists(dir_name):
             miBot.reply_to(message, f"❌ Directorio no existe: {dir_name}")
             return
             
         os.chdir(dir_name)
-        current_dir = os.getcwd()
-        miBot.reply_to(message, f"📂 Directorio cambiado a:\n{current_dir}")
+        current_directory = os.getcwd()
+        items = os.listdir(current_directory)
         
+        response = f"📂 Cambiado a directorio: {current_directory}\n\n"
+        if items:
+            response += "Contenido:\n" + "\n".join(items[:10])  # Mostrar solo primeros 10
+            if len(items) > 10:
+                response += f"\n... y {len(items) - 10} más"
+        else:
+            response += "El directorio está vacío."
+            
+        miBot.reply_to(message, response, parse_mode=None)
     except Exception as e:
-        miBot.reply_to(message, f"❌ Error cambiando directorio: {str(e)}")
+        miBot.reply_to(message, f"❌ Error: {str(e)}")
 
 @miBot.message_handler(commands=["rm"])
 def cmd_rm(message):
-    """Elimina archivo o carpeta"""
     try:
         item_name = message.text[3:].strip()
         if not item_name:
             miBot.reply_to(message, "📝 Uso: /rm <nombre>")
             return
-        
+            
         if not os.path.exists(item_name):
             miBot.reply_to(message, f"❌ No existe: {item_name}")
             return
         
         if os.path.isdir(item_name):
             shutil.rmtree(item_name)
-            miBot.reply_to(message, f"✅ Carpeta '{item_name}' eliminada")
+            miBot.reply_to(message, f"✅ Carpeta '{item_name}' eliminada.")
         else:
             os.remove(item_name)
-            miBot.reply_to(message, f"✅ Archivo '{item_name}' eliminado")
-            
+            miBot.reply_to(message, f"✅ Archivo '{item_name}' eliminado.")
     except Exception as e:
-        miBot.reply_to(message, f"❌ Error eliminando: {str(e)}")
+        miBot.reply_to(message, f"❌ Error: {str(e)}")
 
 @miBot.message_handler(commands=["mv"])
 def cmd_move(message):
-    """Mueve archivo o carpeta"""
     try:
-        args = message.text.split()[1:]
-        if len(args) != 2:
+        args = message.text.split()
+        if len(args) != 3:
             miBot.reply_to(message, "📝 Uso: /mv <origen> <destino>")
             return
-        
-        origen, destino = args
+            
+        origen, destino = args[1], args[2]
         shutil.move(origen, destino)
-        miBot.reply_to(message, f"✅ Movido '{origen}' → '{destino}'")
-        
+        miBot.reply_to(message, f"✅ Movido '{origen}' a '{destino}'.")
     except Exception as e:
-        miBot.reply_to(message, f"❌ Error moviendo: {str(e)}")
+        miBot.reply_to(message, f"❌ Error: {str(e)}")
 
 @miBot.message_handler(commands=["zip"])
 def cmd_zip(message):
-    """Comprime carpeta"""
     try:
         folder_name = message.text[4:].strip()
         if not folder_name:
             miBot.reply_to(message, "📝 Uso: /zip <carpeta>")
             return
-        
+            
         if not os.path.exists(folder_name):
             miBot.reply_to(message, f"❌ Carpeta no existe: {folder_name}")
             return
         
         shutil.make_archive(folder_name, 'zip', folder_name)
-        miBot.reply_to(message, f"✅ Comprimido: '{folder_name}.zip'")
-        
+        miBot.reply_to(message, f"✅ Comprimido: '{folder_name}.zip'.")
     except Exception as e:
-        miBot.reply_to(message, f"❌ Error comprimiendo: {str(e)}")
+        miBot.reply_to(message, f"❌ Error: {str(e)}")
 
 @miBot.message_handler(commands=["unzip"])
 def cmd_unzip(message):
-    """Descomprime archivo"""
     try:
         zip_file = message.text[6:].strip()
         if not zip_file:
             miBot.reply_to(message, "📝 Uso: /unzip <archivo.zip>")
             return
-        
+            
         if not os.path.exists(zip_file):
             miBot.reply_to(message, f"❌ Archivo no existe: {zip_file}")
             return
         
         extract_dir = zip_file.replace('.zip', '')
         shutil.unpack_archive(zip_file, extract_dir)
-        miBot.reply_to(message, f"✅ Descomprimido: '{zip_file}' → '{extract_dir}'")
-        
+        miBot.reply_to(message, f"✅ Descomprimido: '{zip_file}' → '{extract_dir}'.")
     except Exception as e:
-        miBot.reply_to(message, f"❌ Error descomprimiendo: {str(e)}")
+        miBot.reply_to(message, f"❌ Error: {str(e)}")
 
-@miBot.message_handler(commands=["up"])
-def cmd_sendfile(message):
-    """Envía archivo"""
-    try:
-        file_name = message.text[3:].strip()
-        if not file_name:
-            miBot.reply_to(message, "📝 Uso: /up <archivo>")
-            return
-        
-        if not os.path.exists(file_name):
-            miBot.reply_to(message, f"❌ Archivo no existe: {file_name}")
-            return
-        
-        with open(file_name, 'rb') as file:
-            miBot.send_document(message.chat.id, file)
-            
-    except Exception as e:
-        miBot.reply_to(message, f"❌ Error enviando archivo: {str(e)}")
-
-# Manejo de documentos subidos
 @miBot.message_handler(content_types=['document'])
 def handle_document(message):
-    """Procesa archivos subidos"""
+    """Procesa archivos subidos - VERSIÓN MEJORADA"""
     def process_document():
         try:
             file_info = miBot.get_file(message.document.file_id)
@@ -522,96 +429,185 @@ def handle_document(message):
                 extract_dir = file_name.replace('.zip', '')
                 shutil.unpack_archive(file_name, extract_dir)
                 os.remove(file_name)
-                async_send_message(message.chat.id, 
-                                 f"✅ ZIP descomprimido: '{extract_dir}'")
+                miBot.send_message(message.chat.id, f"✅ ZIP descomprimido: '{extract_dir}'")
             else:
-                async_send_message(message.chat.id, f"✅ Archivo guardado: '{file_name}'")
+                miBot.send_message(message.chat.id, f"✅ Archivo guardado: '{file_name}'")
                 
         except Exception as e:
-            async_send_message(message.chat.id, f"❌ Error procesando archivo: {e}")
+            miBot.send_message(message.chat.id, f"❌ Error procesando archivo: {e}")
     
-    run_async_task(process_document)
+    threading.Thread(target=process_document, daemon=True).start()
     miBot.reply_to(message, "📤 Procesando archivo...")
 
-# Comandos de procesos
+@miBot.message_handler(commands=["up"])
+def cmd_sendfile(message):
+    try:
+        file_name = message.text[3:].strip()
+        if not file_name:
+            miBot.reply_to(message, "📝 Uso: /up <archivo>")
+            return
+            
+        if not os.path.exists(file_name):
+            miBot.reply_to(message, f"❌ Archivo no existe: {file_name}")
+            return
+        
+        with open(file_name, 'rb') as file:
+            miBot.send_document(message.chat.id, file)
+    except Exception as e:
+        miBot.reply_to(message, f"❌ Error: {str(e)}")
+
 @miBot.message_handler(commands=["run"])
 def cmd_run_js(message):
-    """Ejecuta proceso"""
     try:
         args = message.text.split()
         if len(args) < 2:
             miBot.reply_to(message, "📝 Uso: /run <nombre_proceso>")
             return
-        
+            
         process_name = args[1]
-        start_process(process_name)
-        miBot.reply_to(message, f"🚀 Iniciando proceso '{process_name}'...")
-        
+        if start_process(process_name):
+            miBot.reply_to(message, f"🚀 Proceso '{process_name}' iniciado")
+        else:
+            miBot.reply_to(message, f"❌ Error iniciando proceso '{process_name}'")
     except Exception as e:
-        miBot.reply_to(message, f"❌ Error iniciando proceso: {e}")
+        miBot.reply_to(message, f"❌ Error: {str(e)}")
 
 @miBot.message_handler(commands=["act"])
 def cmd_processes_activ(message):
-    """Lista procesos activos"""
-    if not process_manager.processes:
+    """Lista procesos activos - VERSIÓN MEJORADA"""
+    if not processes:
         miBot.reply_to(message, "📭 No hay procesos en ejecución")
         return
     
     message_text = "🟢 **Procesos Activos:**\n"
-    for name, process in process_manager.processes.items():
-        status = "🟢 Ejecutándose" if process.poll() is None else "🔴 Detenido"
-        message_text += f"• {name}: {status} (PID: {process.pid})\n"
+    for name, process in list(processes.items()):
+        if process.poll() is None:
+            message_text += f"• {name}: 🟢 Ejecutándose (PID: {process.pid})\n"
+        else:
+            message_text += f"• {name}: 🔴 Terminado\n"
+            del processes[name]  # Limpiar procesos terminados
     
-    miBot.reply_to(message, message_text, parse_mode='Markdown')
+    miBot.reply_to(message, message_text, parse_mode=None)
 
 @miBot.message_handler(commands=["stop"])
 def cmd_stop_js(message):
-    """Detiene proceso"""
     try:
         args = message.text.split()
         if len(args) < 2:
             miBot.reply_to(message, "📝 Uso: /stop <nombre_proceso>")
             return
-        
+            
         process_name = args[1]
-        if process_manager.stop_process(process_name):
+        if stop_process(process_name):
             miBot.reply_to(message, f"⏹️ Proceso '{process_name}' detenido")
         else:
             miBot.reply_to(message, f"❌ Proceso '{process_name}' no encontrado")
-            
     except Exception as e:
-        miBot.reply_to(message, f"❌ Error deteniendo proceso: {e}")
+        miBot.reply_to(message, f"❌ Error: {str(e)}")
 
 # Funciones de procesos
-def start_process(name):
-    """Inicia un proceso"""
+def install_node_env():
+    result = subprocess.run(['pip', 'install', 'nodeenv'], capture_output=True, text=True)
+    return result.stdout if result.returncode == 0 else result.stderr
+
+def create_node_env():
+    result = subprocess.run(['nodeenv', 'nenv', '--node=22.11.0'], capture_output=True, text=True)
+    return result.stdout if result.returncode == 0 else result.stderr
+
+def activate_node_env():
+    activate_script = os.path.join('nenv', 'bin', 'activate')
+    result = subprocess.run(f"source {activate_script}", shell=True, executable='/bin/bash', capture_output=True, text=True)
+    return result.stdout if result.returncode == 0 else result.stderr
+
+def install_extra_modules(modules):
+    result = subprocess.run(['npm', 'i'] + modules, capture_output=True, text=True)
+    return result.stdout if result.returncode == 0 else result.stderr
+
+def install_modules():
+    result = subprocess.run([
+        'npm', 'i', 'user-agents', 'cloudscraper', 'axios', 'colors', 
+        'p-limit', 'https-proxy-agent', 'socks-proxy-agent', 'ws', 'qs'
+    ], capture_output=True, text=True)
+    return result.stdout if result.returncode == 0 else result.stderr
+
+def run_process(route, name, file_js):
+    """Inicia un proceso y lo almacena en el diccionario."""
     try:
-        if name in process_manager.processes_list:
-            process_info = process_manager.processes_list[name]
+        original_cwd = os.getcwd()  # Guardar directorio actual
+        os.chdir(route)
+        
+        process = subprocess.Popen(['node', file_js], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        processes[name] = process
+        logger.info(f"Proceso '{name}' iniciado en {route}")
+
+        # Leer output en segundo plano
+        def read_output():
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    logger.info(f"[{name}] {output.strip()}")
+            
+            # Leer errores al final
+            stderr_output = process.stderr.read()
+            if stderr_output:
+                logger.error(f"[{name} ERROR] {stderr_output.strip()}")
+
+        threading.Thread(target=read_output, daemon=True).start()
+        
+        # Restaurar directorio original
+        os.chdir(original_cwd)
+        
+    except Exception as e:
+        logger.error(f"Error en run_process para {name}: {e}")
+        # Restaurar directorio original en caso de error
+        os.chdir(original_cwd)
+
+def start_process(name):
+    """Inicia un proceso específico."""
+    try:
+        if name in processes_list:
+            process_info = processes_list[name]
             script_name = process_info['script']
             script_route = process_info['route']
             
-            if process_manager.run_process(script_route, name, script_name):
-                logger.info(f"Proceso {name} iniciado correctamente")
-                return True
+            threading.Thread(target=run_process, args=(script_route, name, script_name), daemon=True).start()
+            logger.info(f"Start process llamado para: {name}")
+            return True
         else:
             logger.warning(f"Proceso {name} no encontrado en processes_list")
-        return False
+            return False
     except Exception as e:
         logger.error(f"Error en start_process para {name}: {e}")
         return False
 
-# Configuración e inicio
+def stop_process(name):
+    """Detiene un proceso específico."""
+    if name in processes:
+        try:
+            process = processes[name]
+            process.terminate()  # Intenta terminar el proceso de manera ordenada
+            process.wait(timeout=5)  # Espera hasta 5 segundos para que se detenga
+            logger.info(f"Proceso '{name}' detenido correctamente.")
+            del processes[name]
+            return True
+        except subprocess.TimeoutExpired:
+            logger.warning(f"El proceso '{name}' no se detuvo a tiempo. Forzando la terminación.")
+            processes[name].kill()  # Forzar la terminación si no se detuvo
+            processes[name].wait()
+            del processes[name]
+            return True
+        except Exception as e:
+            logger.error(f"Error al detener el proceso '{name}': {e}")
+            return False
+    else:
+        logger.warning(f"No se encontró el proceso '{name}' para detener.")
+        return False
+
 if __name__ == '__main__':
-    # Configuración para producción
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('DEBUG', 'False').lower() == 'true'
     
-    logger.info(f"Iniciando aplicación en puerto {port} (debug: {debug})")
-    
-    app.run(
-        host='0.0.0.0',
-        port=port,
-        debug=debug,
-        threaded=True
-    )
+    logger.info(f"Iniciando aplicación en puerto {port}")
+    app.run(host='0.0.0.0', port=port, debug=debug)
