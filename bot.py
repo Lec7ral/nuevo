@@ -35,9 +35,6 @@ with app.app_context():
 processes = {}
 processes_list = {}
 
-# Variable global para seguimiento de estados
-waiting_for_process_name = {}
-
 # Rutas Flask
 @app.route('/', methods=['GET', 'POST'])
 def webhook():
@@ -116,9 +113,12 @@ def list_processes(message):
     keyboard = create_process_buttons()
     miBot.send_message(message.chat.id, "🔧 **Gestión de Procesos:**", reply_markup=keyboard)
 
+# Variable para rastrear usuarios que están agregando procesos
+users_adding_process = {}
+
 @miBot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
-    """Maneja las interacciones con los botones - VERSIÓN COMPLETAMENTE CORREGIDA"""
+    """Maneja las interacciones con los botones - VERSIÓN CORREGIDA"""
     try:
         logger.info(f"Callback recibido: {call.data}")
         
@@ -131,7 +131,7 @@ def handle_query(call):
             miBot.answer_callback_query(call.id, "Por favor envía el nombre de la carpeta del proceso")
             
             # Marcar que estamos esperando el nombre del proceso
-            waiting_for_process_name[call.message.chat.id] = True
+            users_adding_process[call.from_user.id] = True
             
             # Enviar mensaje separado para solicitar el nombre
             msg = miBot.send_message(
@@ -139,9 +139,6 @@ def handle_query(call):
                 "📝 **Agregar Nuevo Proceso**\n\nPor favor, envía el nombre de la carpeta donde está el script meomundep.js:",
                 parse_mode='Markdown'
             )
-            
-            # Registrar el handler para el siguiente mensaje
-            miBot.register_next_step_handler(msg, process_add_step)
             
         elif action_type == "process":
             # Manejar procesos existentes
@@ -177,34 +174,36 @@ def handle_query(call):
         logger.error(f"Error en handle_query: {e}")
         miBot.answer_callback_query(call.id, "❌ Error procesando solicitud")
 
-def process_add_step(message):
-    """Procesa el nombre del nuevo proceso - VERSIÓN CORREGIDA"""
+# Handler para mensajes de texto que podrían ser nombres de procesos
+@miBot.message_handler(func=lambda message: message.from_user.id in users_adding_process, content_types=['text'])
+def handle_process_name_input(message):
+    """Maneja la entrada del nombre del proceso para usuarios que están en modo agregar"""
     try:
-        chat_id = message.chat.id
+        user_id = message.from_user.id
         
-        # Verificar si estamos esperando un nombre de proceso
-        if chat_id not in waiting_for_process_name:
+        # Verificar si el usuario está en modo agregar proceso
+        if user_id not in users_adding_process:
             return
-            
+        
         # Limpiar el estado
-        del waiting_for_process_name[chat_id]
+        del users_adding_process[user_id]
         
         process_name = message.text.strip()
         
         if not process_name:
-            miBot.send_message(chat_id, "❌ El nombre del proceso no puede estar vacío.")
+            miBot.reply_to(message, "❌ El nombre del proceso no puede estar vacío.")
             return
         
         # Verificar si la carpeta existe
         folder_path = os.path.join(ABSOLUTE_PATH, process_name)
         if not os.path.exists(folder_path):
-            miBot.send_message(chat_id, f"❌ La carpeta '{process_name}' no existe.")
+            miBot.reply_to(message, f"❌ La carpeta '{process_name}' no existe.")
             return
         
         # Verificar si el script existe
         script_path = os.path.join(folder_path, "meomundep.js")
         if not os.path.isfile(script_path):
-            miBot.send_message(chat_id, f"❌ El script 'meomundep.js' no existe en la carpeta '{process_name}'.")
+            miBot.reply_to(message, f"❌ El script 'meomundep.js' no existe en la carpeta '{process_name}'.")
             return
         
         # Agregar a la lista de procesos
@@ -215,33 +214,20 @@ def process_add_step(message):
         
         # Iniciar el proceso
         if start_process(process_name):
-            miBot.send_message(chat_id, f"✅ Proceso '{process_name}' agregado y en ejecución.")
+            miBot.reply_to(message, f"✅ Proceso '{process_name}' agregado y en ejecución.")
         else:
-            miBot.send_message(chat_id, f"⚠️ Proceso '{process_name}' agregado pero hubo un error al iniciarlo.")
+            miBot.reply_to(message, f"⚠️ Proceso '{process_name}' agregado pero hubo un error al iniciarlo.")
         
         # Actualizar la lista de procesos
         try:
             keyboard = create_process_buttons()
-            miBot.send_message(chat_id, "🔧 **Gestión de Procesos Actualizada:**", reply_markup=keyboard)
+            miBot.send_message(message.chat.id, "🔧 **Gestión de Procesos Actualizada:**", reply_markup=keyboard)
         except Exception as e:
             logger.error(f"Error enviando teclado actualizado: {e}")
             
     except Exception as e:
-        logger.error(f"Error en process_add_step: {e}")
-        miBot.send_message(message.chat.id, f"❌ Error al agregar el proceso: {e}")
-
-# Handler para mensajes de texto normales (evita conflictos)
-@miBot.message_handler(func=lambda message: True, content_types=['text'])
-def handle_text_messages(message):
-    """Maneja mensajes de texto que no son comandos"""
-    chat_id = message.chat.id
-    
-    # Si no estamos esperando un nombre de proceso, ignorar
-    if chat_id not in waiting_for_process_name:
-        # Solo responder si no es un comando
-        if not message.text.startswith('/'):
-            miBot.send_message(chat_id, "Usa /help para ver los comandos disponibles.")
-        return
+        logger.error(f"Error en handle_process_name_input: {e}")
+        miBot.reply_to(message, f"❌ Error al agregar el proceso: {e}")
 
 # Comandos de instalación
 @miBot.message_handler(commands=["inst"])
