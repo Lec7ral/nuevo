@@ -17,7 +17,7 @@ url = 'https://nuevo-uf5s.onrender.com'
 ABSOLUTE_PATH = os.getcwd()
 miBot = telebot.TeleBot(BOT_API)
 miBot.remove_webhook()
-#miBot.set_webhook(url=url)
+miBot.set_webhook(url=url)
 
 # Variables globales
 MAX_RUNNING_SCRIPTS = 4
