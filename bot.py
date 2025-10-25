@@ -23,9 +23,9 @@ logger = logging.getLogger(__name__)
 
 # Inicialización
 app = Flask(__name__)
-miBot = telebot.TeleBot(BOT_API, parse_mode=None)  # Deshabilitar parse_mode por defecto
+miBot = telebot.TeleBot(BOT_API, parse_mode=None)
 
-# Configurar webhook al inicio (reemplaza before_first_request)
+# Configurar webhook al inicio
 with app.app_context():
     miBot.remove_webhook()
     miBot.set_webhook(url=URL)
@@ -34,6 +34,9 @@ with app.app_context():
 # Diccionarios para gestión de procesos
 processes = {}
 processes_list = {}
+
+# Variable global para seguimiento de estados
+waiting_for_process_name = {}
 
 # Rutas Flask
 @app.route('/', methods=['GET', 'POST'])
@@ -87,7 +90,6 @@ def create_process_buttons():
     """Crea botones para los procesos en ejecución."""
     keyboard = telebot.types.InlineKeyboardMarkup()
     
-    # Agregar timestamp para evitar mensajes idénticos
     current_time = int(time.time())
     
     for name in processes_list.keys():
@@ -96,16 +98,16 @@ def create_process_buttons():
         else:
             status = "🔴"
         
-        # Incluir timestamp en callback_data para hacerlo único
         keyboard.add(telebot.types.InlineKeyboardButton(
             f"{status} {name}", 
-            callback_data=f"{name}_{current_time}"
+            callback_data=f"process_{name}_{current_time}"
         ))
     
     keyboard.add(telebot.types.InlineKeyboardButton(
         "➕ Agregar Proceso", 
         callback_data=f"add_process_{current_time}"
     ))
+    
     return keyboard
 
 @miBot.message_handler(commands=['list'])
@@ -116,69 +118,130 @@ def list_processes(message):
 
 @miBot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
-    """Maneja las interacciones con los botones - VERSIÓN CORREGIDA"""
+    """Maneja las interacciones con los botones - VERSIÓN COMPLETAMENTE CORREGIDA"""
     try:
-        # Extraer el nombre real del callback_data (ignorar timestamp)
-        callback_data = call.data
-        if '_' in callback_data and not callback_data.startswith('add_process'):
-            base_data = callback_data.rsplit('_', 1)[0]
-        else:
-            base_data = callback_data.split('_')[0] if '_' in callback_data else callback_data
-
-        if base_data == "add_process":
-            miBot.send_message(call.message.chat.id, "📝 Envía el nombre de la carpeta del proceso:")
-            miBot.register_next_step_handler(call.message, add_process)
+        logger.info(f"Callback recibido: {call.data}")
         
-        elif base_data in processes_list:
-            process = processes.get(base_data)
-            if process and process.poll() is None:
-                # Proceso está ejecutándose, detenerlo
-                if stop_process(base_data):
-                    miBot.answer_callback_query(call.id, f"⏹️ {base_data} detenido")
-                else:
-                    miBot.answer_callback_query(call.id, f"❌ Error deteniendo {base_data}")
-            else:
-                # Proceso no está ejecutándose, iniciarlo
-                if start_process(base_data):
-                    miBot.answer_callback_query(call.id, f"▶️ {base_data} iniciado")
-                else:
-                    miBot.answer_callback_query(call.id, f"❌ Error iniciando {base_data}")
-
-        # Actualizar la interfaz solo si es necesario
-        try:
-            new_keyboard = create_process_buttons()
-            miBot.edit_message_reply_markup(
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=new_keyboard
+        # Extraer el tipo de acción y el nombre
+        parts = call.data.split('_')
+        action_type = parts[0]
+        
+        if action_type == "add":
+            # CORRECCIÓN: Manejar agregar proceso
+            miBot.answer_callback_query(call.id, "Por favor envía el nombre de la carpeta del proceso")
+            
+            # Marcar que estamos esperando el nombre del proceso
+            waiting_for_process_name[call.message.chat.id] = True
+            
+            # Enviar mensaje separado para solicitar el nombre
+            msg = miBot.send_message(
+                call.message.chat.id, 
+                "📝 **Agregar Nuevo Proceso**\n\nPor favor, envía el nombre de la carpeta donde está el script meomundep.js:",
+                parse_mode='Markdown'
             )
-        except Exception as e:
-            if "message is not modified" not in str(e):
-                logger.warning(f"Error al actualizar botones: {e}")
+            
+            # Registrar el handler para el siguiente mensaje
+            miBot.register_next_step_handler(msg, process_add_step)
+            
+        elif action_type == "process":
+            # Manejar procesos existentes
+            if len(parts) >= 2:
+                process_name = parts[1]
+                
+                if process_name in processes and processes[process_name].poll() is None:
+                    # Detener proceso
+                    if stop_process(process_name):
+                        miBot.answer_callback_query(call.id, f"⏹️ {process_name} detenido")
+                    else:
+                        miBot.answer_callback_query(call.id, f"❌ Error deteniendo {process_name}")
+                else:
+                    # Iniciar proceso
+                    if start_process(process_name):
+                        miBot.answer_callback_query(call.id, f"▶️ {process_name} iniciado")
+                    else:
+                        miBot.answer_callback_query(call.id, f"❌ Error iniciando {process_name}")
+            
+            # Actualizar la interfaz
+            try:
+                new_keyboard = create_process_buttons()
+                miBot.edit_message_reply_markup(
+                    call.message.chat.id,
+                    call.message.message_id,
+                    reply_markup=new_keyboard
+                )
+            except Exception as e:
+                if "message is not modified" not in str(e):
+                    logger.warning(f"Error actualizando botones: {e}")
 
     except Exception as e:
         logger.error(f"Error en handle_query: {e}")
         miBot.answer_callback_query(call.id, "❌ Error procesando solicitud")
 
-def add_process(message):
-    """Agrega un nuevo proceso a la lista."""
+def process_add_step(message):
+    """Procesa el nombre del nuevo proceso - VERSIÓN CORREGIDA"""
     try:
-        process_name = message.text.strip()
-        full_script_path = os.path.join(ABSOLUTE_PATH, process_name, "meomundep.js")
-        absolute_file_path = os.path.join(ABSOLUTE_PATH, process_name)
-
-        if not os.path.isfile(full_script_path):
-            miBot.send_message(message.chat.id, f"❌ Error: El script '{full_script_path}' no existe.")
+        chat_id = message.chat.id
+        
+        # Verificar si estamos esperando un nombre de proceso
+        if chat_id not in waiting_for_process_name:
             return
-
-        threading.Thread(target=run_process, args=(absolute_file_path, process_name, "meomundep.js")).start()
-        miBot.send_message(message.chat.id, f"✅ Proceso '{process_name}' agregado y en ejecución.")
+            
+        # Limpiar el estado
+        del waiting_for_process_name[chat_id]
+        
+        process_name = message.text.strip()
+        
+        if not process_name:
+            miBot.send_message(chat_id, "❌ El nombre del proceso no puede estar vacío.")
+            return
+        
+        # Verificar si la carpeta existe
+        folder_path = os.path.join(ABSOLUTE_PATH, process_name)
+        if not os.path.exists(folder_path):
+            miBot.send_message(chat_id, f"❌ La carpeta '{process_name}' no existe.")
+            return
+        
+        # Verificar si el script existe
+        script_path = os.path.join(folder_path, "meomundep.js")
+        if not os.path.isfile(script_path):
+            miBot.send_message(chat_id, f"❌ El script 'meomundep.js' no existe en la carpeta '{process_name}'.")
+            return
+        
+        # Agregar a la lista de procesos
         processes_list[process_name] = {
             'script': "meomundep.js",
-            'route': absolute_file_path
+            'route': folder_path
         }
+        
+        # Iniciar el proceso
+        if start_process(process_name):
+            miBot.send_message(chat_id, f"✅ Proceso '{process_name}' agregado y en ejecución.")
+        else:
+            miBot.send_message(chat_id, f"⚠️ Proceso '{process_name}' agregado pero hubo un error al iniciarlo.")
+        
+        # Actualizar la lista de procesos
+        try:
+            keyboard = create_process_buttons()
+            miBot.send_message(chat_id, "🔧 **Gestión de Procesos Actualizada:**", reply_markup=keyboard)
+        except Exception as e:
+            logger.error(f"Error enviando teclado actualizado: {e}")
+            
     except Exception as e:
+        logger.error(f"Error en process_add_step: {e}")
         miBot.send_message(message.chat.id, f"❌ Error al agregar el proceso: {e}")
+
+# Handler para mensajes de texto normales (evita conflictos)
+@miBot.message_handler(func=lambda message: True, content_types=['text'])
+def handle_text_messages(message):
+    """Maneja mensajes de texto que no son comandos"""
+    chat_id = message.chat.id
+    
+    # Si no estamos esperando un nombre de proceso, ignorar
+    if chat_id not in waiting_for_process_name:
+        # Solo responder si no es un comando
+        if not message.text.startswith('/'):
+            miBot.send_message(chat_id, "Usa /help para ver los comandos disponibles.")
+        return
 
 # Comandos de instalación
 @miBot.message_handler(commands=["inst"])
@@ -226,7 +289,6 @@ def cmd_modules(message):
             if result.returncode == 0:
                 miBot.send_message(message.chat.id, "✅ Módulos instalados correctamente")
                 if result.stdout:
-                    # Limitar la longitud del output
                     output_preview = result.stdout[:1000] + "..." if len(result.stdout) > 1000 else result.stdout
                     miBot.send_message(message.chat.id, f"📄 Output:\n{output_preview}")
             else:
@@ -237,10 +299,10 @@ def cmd_modules(message):
     
     threading.Thread(target=install_modules_task, daemon=True).start()
 
-# Comandos de sistema de archivos y procesos - VERSIÓN CORREGIDA
+# Comandos de sistema de archivos y procesos
 @miBot.message_handler(commands=["help"])
 def cmd_help(message):
-    """Muestra ayuda - VERSIÓN CORREGIDA"""
+    """Muestra ayuda"""
     help_text = """
 /start - Iniciar el bot
 /enserio - Respuesta divertida
@@ -259,12 +321,11 @@ def cmd_help(message):
 /stop <nombre> - Detener un proceso específico
 /list - Gestión visual de procesos
 """
-    # SOLUCIÓN: Usar parse_mode=None para texto plano
     miBot.reply_to(message, help_text, parse_mode=None)
 
 @miBot.message_handler(commands=["ls"])
 def cmd_ls(message):
-    """Lista archivos y carpetas - VERSIÓN CORREGIDA"""
+    """Lista archivos y carpetas"""
     try:
         path = message.text[3:].strip() or '.'
         
@@ -277,7 +338,6 @@ def cmd_ls(message):
             miBot.reply_to(message, f"📂 Directorio vacío: {path}")
             return
         
-        # Dividir en chunks para evitar mensajes demasiado largos
         def split_list(lst, chunk_size=20):
             for i in range(0, len(lst), chunk_size):
                 yield lst[i:i + chunk_size]
@@ -292,7 +352,6 @@ def cmd_ls(message):
                 icon = "📁" if os.path.isdir(item_path) else "📄"
                 response += f"{icon} {item}\n"
             
-            # Para el primer mensaje usar reply, para los siguientes send
             if i == 0:
                 miBot.reply_to(message, response, parse_mode=None)
             else:
@@ -332,7 +391,7 @@ def cmd_cd(message):
         
         response = f"📂 Cambiado a directorio: {current_directory}\n\n"
         if items:
-            response += "Contenido:\n" + "\n".join(items[:10])  # Mostrar solo primeros 10
+            response += "Contenido:\n" + "\n".join(items[:10])
             if len(items) > 10:
                 response += f"\n... y {len(items) - 10} más"
         else:
@@ -414,7 +473,7 @@ def cmd_unzip(message):
 
 @miBot.message_handler(content_types=['document'])
 def handle_document(message):
-    """Procesa archivos subidos - VERSIÓN MEJORADA"""
+    """Procesa archivos subidos"""
     def process_document():
         try:
             file_info = miBot.get_file(message.document.file_id)
@@ -424,7 +483,6 @@ def handle_document(message):
             with open(file_name, 'wb') as f:
                 f.write(downloaded_file)
             
-            # Procesar ZIP automáticamente
             if file_name.endswith('.zip'):
                 extract_dir = file_name.replace('.zip', '')
                 shutil.unpack_archive(file_name, extract_dir)
@@ -474,18 +532,18 @@ def cmd_run_js(message):
 
 @miBot.message_handler(commands=["act"])
 def cmd_processes_activ(message):
-    """Lista procesos activos - VERSIÓN MEJORADA"""
+    """Lista procesos activos"""
     if not processes:
         miBot.reply_to(message, "📭 No hay procesos en ejecución")
         return
     
-    message_text = "🟢 **Procesos Activos:**\n"
+    message_text = "🟢 Procesos Activos:\n"
     for name, process in list(processes.items()):
         if process.poll() is None:
             message_text += f"• {name}: 🟢 Ejecutándose (PID: {process.pid})\n"
         else:
             message_text += f"• {name}: 🔴 Terminado\n"
-            del processes[name]  # Limpiar procesos terminados
+            del processes[name]
     
     miBot.reply_to(message, message_text, parse_mode=None)
 
@@ -506,41 +564,16 @@ def cmd_stop_js(message):
         miBot.reply_to(message, f"❌ Error: {str(e)}")
 
 # Funciones de procesos
-def install_node_env():
-    result = subprocess.run(['pip', 'install', 'nodeenv'], capture_output=True, text=True)
-    return result.stdout if result.returncode == 0 else result.stderr
-
-def create_node_env():
-    result = subprocess.run(['nodeenv', 'nenv', '--node=22.11.0'], capture_output=True, text=True)
-    return result.stdout if result.returncode == 0 else result.stderr
-
-def activate_node_env():
-    activate_script = os.path.join('nenv', 'bin', 'activate')
-    result = subprocess.run(f"source {activate_script}", shell=True, executable='/bin/bash', capture_output=True, text=True)
-    return result.stdout if result.returncode == 0 else result.stderr
-
-def install_extra_modules(modules):
-    result = subprocess.run(['npm', 'i'] + modules, capture_output=True, text=True)
-    return result.stdout if result.returncode == 0 else result.stderr
-
-def install_modules():
-    result = subprocess.run([
-        'npm', 'i', 'user-agents', 'cloudscraper', 'axios', 'colors', 
-        'p-limit', 'https-proxy-agent', 'socks-proxy-agent', 'ws', 'qs'
-    ], capture_output=True, text=True)
-    return result.stdout if result.returncode == 0 else result.stderr
-
 def run_process(route, name, file_js):
     """Inicia un proceso y lo almacena en el diccionario."""
     try:
-        original_cwd = os.getcwd()  # Guardar directorio actual
+        original_cwd = os.getcwd()
         os.chdir(route)
         
         process = subprocess.Popen(['node', file_js], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         processes[name] = process
         logger.info(f"Proceso '{name}' iniciado en {route}")
 
-        # Leer output en segundo plano
         def read_output():
             while True:
                 output = process.stdout.readline()
@@ -549,19 +582,16 @@ def run_process(route, name, file_js):
                 if output:
                     logger.info(f"[{name}] {output.strip()}")
             
-            # Leer errores al final
             stderr_output = process.stderr.read()
             if stderr_output:
                 logger.error(f"[{name} ERROR] {stderr_output.strip()}")
 
         threading.Thread(target=read_output, daemon=True).start()
         
-        # Restaurar directorio original
         os.chdir(original_cwd)
         
     except Exception as e:
         logger.error(f"Error en run_process para {name}: {e}")
-        # Restaurar directorio original en caso de error
         os.chdir(original_cwd)
 
 def start_process(name):
@@ -587,14 +617,14 @@ def stop_process(name):
     if name in processes:
         try:
             process = processes[name]
-            process.terminate()  # Intenta terminar el proceso de manera ordenada
-            process.wait(timeout=5)  # Espera hasta 5 segundos para que se detenga
+            process.terminate()
+            process.wait(timeout=5)
             logger.info(f"Proceso '{name}' detenido correctamente.")
             del processes[name]
             return True
         except subprocess.TimeoutExpired:
             logger.warning(f"El proceso '{name}' no se detuvo a tiempo. Forzando la terminación.")
-            processes[name].kill()  # Forzar la terminación si no se detuvo
+            processes[name].kill()
             processes[name].wait()
             del processes[name]
             return True
