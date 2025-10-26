@@ -6,6 +6,7 @@ import time
 import logging
 import zipfile
 import json
+import re
 from pathlib import Path
 from collections import deque
 from datetime import datetime, timedelta
@@ -29,7 +30,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG = {
     'max_concurrent_processes': 3,
     'restart_delay': 30,
-    'restart_keywords': ['error', 'failed', 'restart', 'timeout', 'crash', 'exception', 'kill'],
+    'stop_keywords': ['Waiting', 'Bot broken somewhere'],
+    'login_failed_pattern': True,
     'process_check_interval': 10
 }
 
@@ -44,7 +46,6 @@ def load_config():
         with open(CONFIG_FILE, 'r') as f:
             return json.load(f)
     except:
-        # Si no existe, crear con valores por defecto
         save_config(DEFAULT_CONFIG)
         return DEFAULT_CONFIG.copy()
 
@@ -78,7 +79,8 @@ def save_process_stats():
 config = load_config()
 MAX_CONCURRENT_PROCESSES = config['max_concurrent_processes']
 RESTART_DELAY = config['restart_delay']
-RESTART_KEYWORDS = config['restart_keywords']
+STOP_KEYWORDS = config['stop_keywords']
+LOGIN_FAILED_PATTERN = config['login_failed_pattern']
 PROCESS_CHECK_INTERVAL = config['process_check_interval']
 
 # Inicialización
@@ -180,8 +182,18 @@ def cmd_config(message):
             save_config(config)
             miBot.reply_to(message, f"✅ Delay de reinicio cambiado a {new_delay} segundos")
 
+        elif setting == "stop_keywords":
+            # Agregar nueva palabra clave para detener procesos
+            if value not in STOP_KEYWORDS:
+                STOP_KEYWORDS.append(value)
+                config['stop_keywords'] = STOP_KEYWORDS
+                save_config(config)
+                miBot.reply_to(message, f"✅ Palabra clave '{value}' agregada para detección")
+            else:
+                miBot.reply_to(message, f"❌ La palabra clave '{value}' ya existe")
+
         else:
-            miBot.reply_to(message, "❌ Configuración no válida. Usa: max_processes o restart_delay")
+            miBot.reply_to(message, "❌ Configuración no válida. Usa: max_processes, restart_delay o stop_keywords")
 
     except ValueError:
         miBot.reply_to(message, "❌ El valor debe ser un número")
@@ -196,9 +208,10 @@ def show_current_config(message):
 
 • Límite de procesos: {MAX_CONCURRENT_PROCESSES}
 • Delay de reinicio: {RESTART_DELAY}s
-• Palabras de reinicio: {', '.join(RESTART_KEYWORDS)}
+• Palabras de detección: {', '.join(STOP_KEYWORDS)}
+• Detección login failed: {'✅ Activado' if LOGIN_FAILED_PATTERN else '❌ Desactivado'}
 
-**Uso:** `/config <max_processes|restart_delay> <valor>`
+**Uso:** `/config <max_processes|restart_delay|stop_keywords> <valor>`
 """
     miBot.reply_to(message, config_text, parse_mode='Markdown')
 
@@ -225,7 +238,6 @@ def create_process_buttons():
         callback_data=f"add_process_{current_time}"
     ))
     
-    # Botón para verificar cola
     keyboard.add(telebot.types.InlineKeyboardButton(
         "🔄 Verificar Cola", 
         callback_data=f"check_queue_{current_time}"
@@ -274,7 +286,6 @@ def handle_query(call):
                     else:
                         miBot.answer_callback_query(call.id, f"⏳ {process_name} en cola (posición: {len(process_queue)})")
             
-            # Actualizar la interfaz
             try:
                 new_keyboard = create_process_buttons()
                 miBot.edit_message_reply_markup(
@@ -287,7 +298,6 @@ def handle_query(call):
                     logger.warning(f"Error actualizando botones: {e}")
 
         elif action_type == "check":
-            # Verificar y procesar cola manualmente
             process_queue_from_waiting()
             miBot.answer_callback_query(call.id, "✅ Cola verificada")
             
@@ -339,7 +349,6 @@ def handle_process_name_input(message):
             'route': folder_path
         }
         
-        # Guardar en persistencia
         save_processes_list()
         
         if start_process(process_name):
@@ -362,16 +371,13 @@ def find_and_load_scripts_from_directory(directory):
     """Busca y carga automáticamente scripts meomundep.js solo en el primer nivel del directorio."""
     try:
         scripts_found = []
-        # SOLO primer nivel - cambio solicitado
         for item in os.listdir(directory):
             item_path = os.path.join(directory, item)
             if os.path.isdir(item_path):
-                # Buscar meomundep.js en el primer nivel
                 script_path = os.path.join(item_path, "meomundep.js")
                 if os.path.isfile(script_path):
                     folder_name = item
                     
-                    # Verificar si ya existe en processes_list
                     if folder_name not in processes_list:
                         processes_list[folder_name] = {
                             'script': "meomundep.js",
@@ -380,7 +386,6 @@ def find_and_load_scripts_from_directory(directory):
                         scripts_found.append(folder_name)
                         logger.info(f"Script encontrado y cargado: {folder_name}")
         
-        # Guardar en persistencia
         if scripts_found:
             save_processes_list()
                 
@@ -404,24 +409,19 @@ def handle_document(message):
             if file_name.endswith('.zip'):
                 extract_dir = file_name.replace('.zip', '')
                 
-                # Crear directorio de extracción si no existe
                 os.makedirs(extract_dir, exist_ok=True)
                 
-                # Descomprimir
                 with zipfile.ZipFile(file_name, 'r') as zip_ref:
                     zip_ref.extractall(extract_dir)
                 
-                # Buscar y cargar scripts automáticamente (SOLO PRIMER NIVEL)
                 loaded_scripts = find_and_load_scripts_from_directory(extract_dir)
                 
-                # Eliminar el archivo ZIP original
                 os.remove(file_name)
                 
                 if loaded_scripts:
                     script_list = "\n".join([f"• {script}" for script in loaded_scripts])
                     response_msg = f"✅ **ZIP procesado correctamente**\n\n📂 Carpeta: {extract_dir}\n🔧 Scripts cargados automáticamente:\n{script_list}\n\nUsa /list para gestionar los procesos."
                     
-                    # Intentar iniciar los scripts cargados
                     auto_started = 0
                     for script_name in loaded_scripts:
                         if start_process(script_name):
@@ -448,46 +448,63 @@ def handle_document(message):
     threading.Thread(target=process_document, daemon=True).start()
     miBot.reply_to(message, "📤 Procesando archivo y buscando scripts automáticamente...")
 
-# FUNCIONALIDAD 2: Sistema de rotación y límites (CON COLA EN LUGAR DE REINICIO DIRECTO)
+# SISTEMA DE DETECCIÓN DE PALABRAS CLAVE (BASADO EN TU CÓDIGO ORIGINAL)
+def detect_stop_conditions(output, process_name):
+    """
+    Detecta condiciones específicas en el output que requieren detener el proceso.
+    Basado en tu código original.
+    """
+    try:
+        # 1. Detectar "Waiting"
+        if "Waiting" in output:
+            logger.info(f"⏸️ '{process_name}' está en espera. Deteniendo el proceso.")
+            return True, "en espera"
+        
+        # 2. Detectar "Bot broken somewhere"
+        if "Bot broken somewhere" in output:
+            logger.info(f"🛑 '{process_name}' se rompió. Deteniendo el proceso.")
+            return True, "bot roto"
+        
+        # 3. Detectar patron de login failed (con regex como en tu código original)
+        if LOGIN_FAILED_PATTERN:
+            try:
+                if re.search(r'login', output, re.IGNORECASE) and re.search(r'failed', output, re.IGNORECASE):
+                    logger.info(f"🔐 '{process_name}' ha fallado en el login. Deteniendo el proceso.")
+                    
+                    # Enviar mensaje al chat específico (como en tu código original)
+                    try:
+                        miBot.send_message(971580959, f"Error de inicio de sesión en '{process_name}'.")
+                    except Exception as e:
+                        logger.error(f"Error enviando mensaje de login failed: {e}")
+                    
+                    return True, "error de login"
+            except Exception as e:
+                logger.error(f"Error en detección de login failed: {e}")
+        
+        return False, None
+        
+    except Exception as e:
+        logger.error(f"Error en detección de condiciones: {e}")
+        return False, None
+
 def count_running_processes():
     """Cuenta cuántos procesos están actualmente en ejecución."""
     count = 0
     for name, process in processes.items():
-        if process.poll() is None:  # Proceso aún corriendo
+        if process.poll() is None:
             count += 1
     return count
 
-def should_restart_process(output_line):
-    """Determina si un proceso debe reiniciarse basado en su output."""
-    output_lower = output_line.lower()
-    for keyword in RESTART_KEYWORDS:
-        if keyword in output_lower:
-            return True, keyword
-    return False, None
-
-def schedule_restart_to_queue(process_name, delay=RESTART_DELAY, reason="error"):
-    """Programa el agregado del proceso a la cola después de un delay (EN LUGAR DE REINICIO DIRECTO)."""
+def schedule_restart_to_queue(process_name, delay=RESTART_DELAY, reason="condición detectada"):
+    """Programa el agregado del proceso a la cola después de un delay."""
     def add_to_queue():
         logger.info(f"⏰ Programando agregado a cola de {process_name} en {delay} segundos...")
         time.sleep(delay)
         
         if process_name in processes_list:
-            # Agregar a la cola en lugar de reiniciar directamente
             if process_name not in process_queue:
                 process_queue.append(process_name)
                 logger.info(f"🔄 {process_name} agregado al FINAL de la cola después de {reason}")
-                
-                # Notificar solo si es por error
-                if reason == "error":
-                    try:
-                        # Buscar algún chat para notificar (usamos el primero de processes_list)
-                        # En un sistema real, deberías tener un sistema de notificaciones por proceso
-                        miBot.send_message(
-                            list(processes_list.keys())[0],  # Chat del primer proceso
-                            f"🔄 **Proceso reiniciado por error**\n\n• Proceso: {process_name}\n• Razón: {reason}\n• Posición en cola: {len(process_queue)}"
-                        )
-                    except:
-                        pass  # Si no se puede notificar, continuar
             else:
                 logger.info(f"ℹ️ {process_name} ya está en la cola")
         else:
@@ -508,7 +525,6 @@ def process_queue_from_waiting():
             logger.info(f"✅ {process_name} iniciado desde cola")
         else:
             logger.error(f"❌ Error iniciando {process_name} desde cola")
-            # Re-encolar si hay error
             process_queue.appendleft(process_name)
             break
 
@@ -520,19 +536,19 @@ def start_process_direct(process_name):
             script_name = process_info['script']
             script_route = process_info['route']
             
-            # Inicializar estadísticas si no existen
             if process_name not in process_stats:
                 process_stats[process_name] = {
                     'start_time': time.time(),
-                    'restart_count': 0,
+                    'stop_count': 0,
                     'total_uptime': 0,
-                    'last_error': None
+                    'last_stop_reason': None,
+                    'last_stop_time': None
                 }
             else:
                 process_stats[process_name]['start_time'] = time.time()
             
             threading.Thread(
-                target=run_process_with_rotation, 
+                target=run_process_with_monitoring, 
                 args=(script_route, process_name, script_name), 
                 daemon=True
             ).start()
@@ -550,7 +566,6 @@ def start_process(process_name):
     running_count = count_running_processes()
     
     if running_count >= MAX_CONCURRENT_PROCESSES:
-        # Agregar a cola de espera
         if process_name not in process_queue:
             process_queue.append(process_name)
             logger.info(f"⏳ {process_name} agregado a la cola. Posición: {len(process_queue)}")
@@ -558,8 +573,11 @@ def start_process(process_name):
     else:
         return start_process_direct(process_name)
 
-def run_process_with_rotation(route, name, file_js):
-    """Inicia un proceso con sistema de rotación y agregado a cola en lugar de reinicio directo."""
+def run_process_with_monitoring(route, name, file_js):
+    """
+    Inicia un proceso con monitoreo de output para detectar condiciones de parada.
+    Basado en tu código original pero integrado con el sistema de colas.
+    """
     try:
         original_cwd = os.getcwd()
         os.chdir(route)
@@ -575,22 +593,30 @@ def run_process_with_rotation(route, name, file_js):
         logger.info(f"🔄 Proceso '{name}' iniciado en {route}")
 
         def monitor_output():
-            """Monitorea la salida del proceso para detectar condiciones de agregado a cola."""
+            """Monitorea la salida del proceso para detectar condiciones de parada."""
             try:
-                while process.poll() is None:
+                while True:
                     output = process.stdout.readline()
+                    
+                    # Salir si el proceso ha terminado (como en tu código original)
+                    if output == '' and process.poll() is not None:
+                        break
+                    
                     if output:
-                        logger.info(f"[{name}] {output.strip()}")
+                        output_clean = output.strip()
+                        logger.info(f"[{name}] {output_clean}")
                         
-                        # Verificar si debe agregarse a la cola (por error)
-                        should_restart, keyword = should_restart_process(output)
-                        if should_restart:
-                            logger.warning(f"🔄 Palabra clave '{keyword}' detectada en {name}. Agregando a cola...")
+                        # DETECCIÓN DE CONDICIONES DE PARADA (tu lógica original)
+                        should_stop, stop_reason = detect_stop_conditions(output_clean, name)
+                        
+                        if should_stop:
+                            logger.warning(f"🛑 Condición de parada detectada en {name}: {stop_reason}. Deteniendo proceso...")
                             
                             # Actualizar estadísticas
                             if name in process_stats:
-                                process_stats[name]['restart_count'] += 1
-                                process_stats[name]['last_error'] = keyword
+                                process_stats[name]['stop_count'] += 1
+                                process_stats[name]['last_stop_reason'] = stop_reason
+                                process_stats[name]['last_stop_time'] = time.time()
                                 process_stats[name]['total_uptime'] += time.time() - process_stats[name]['start_time']
                             
                             # Detener proceso actual
@@ -600,11 +626,18 @@ def run_process_with_rotation(route, name, file_js):
                             except:
                                 process.kill()
                             
+                            # Eliminar del diccionario de procesos
+                            if name in processes:
+                                del processes[name]
+                            
                             # Programar agregado a cola (NO REINICIO DIRECTO)
-                            schedule_restart_to_queue(name, reason=f"error: {keyword}")
+                            schedule_restart_to_queue(name, reason=stop_reason)
+                            
+                            # Procesar siguiente en cola inmediatamente
+                            process_queue_from_waiting()
                             break
                 
-                # Si el proceso termina por sí solo (sin keyword)
+                # Si el proceso termina por sí solo (sin condición de parada)
                 if process.poll() is not None:
                     return_code = process.returncode
                     
@@ -637,17 +670,16 @@ def run_process_with_rotation(route, name, file_js):
         os.chdir(original_cwd)
         
     except Exception as e:
-        logger.error(f"Error en run_process_with_rotation para {name}: {e}")
+        logger.error(f"Error en run_process_with_monitoring para {name}: {e}")
         try:
             os.chdir(original_cwd)
         except:
             pass
         schedule_restart_to_queue(name, reason=f"startup error: {e}")
 
-# Comandos de instalación
+# Los comandos restantes se mantienen igual (inst, modules, stats, help, ls, mkdir, cd, rm, mv, zip, unzip, up, run, act, stop)
 @miBot.message_handler(commands=["inst"])
 def cmd_install(message):
-    """Instalación optimizada del entorno Node.js"""
     def install_task():
         try:
             steps = [
@@ -675,7 +707,6 @@ def cmd_install(message):
 
 @miBot.message_handler(commands=["modules"])
 def cmd_modules(message):
-    """Instala módulos adicionales de Node.js"""
     modules_to_install = message.text.split()[1:]
     if not modules_to_install:
         miBot.reply_to(message, "📝 Uso: /modules <módulo1> <módulo2> ...")
@@ -700,7 +731,6 @@ def cmd_modules(message):
     
     threading.Thread(target=install_modules_task, daemon=True).start()
 
-# Comando de estadísticas
 @miBot.message_handler(commands=["stats"])
 def cmd_stats(message):
     """Muestra estadísticas de rendimiento de los procesos"""
@@ -713,8 +743,9 @@ def cmd_stats(message):
         
         for name, stats in process_stats.items():
             total_uptime = stats.get('total_uptime', 0)
-            restart_count = stats.get('restart_count', 0)
-            last_error = stats.get('last_error', 'Ninguno')
+            stop_count = stats.get('stop_count', 0)
+            last_stop_reason = stats.get('last_stop_reason', 'Ninguno')
+            last_stop_time = stats.get('last_stop_time')
             
             # Calcular tiempo actual si está ejecutándose
             current_uptime = 0
@@ -725,10 +756,16 @@ def cmd_stats(message):
             else:
                 uptime_str = str(timedelta(seconds=int(total_uptime)))
             
+            # Formatear última parada
+            last_stop_str = "Nunca"
+            if last_stop_time:
+                last_stop_str = f"{timedelta(seconds=int(time.time() - last_stop_time))} ago"
+            
             stats_text += f"**{name}**\n"
             stats_text += f"• Tiempo total: {uptime_str}\n"
-            stats_text += f"• Reinicios por error: {restart_count}\n"
-            stats_text += f"• Último error: {last_error}\n\n"
+            stats_text += f"• Paradas por detección: {stop_count}\n"
+            stats_text += f"• Última parada: {last_stop_reason}\n"
+            stats_text += f"• Hace: {last_stop_str}\n\n"
         
         miBot.reply_to(message, stats_text, parse_mode='Markdown')
         
@@ -736,10 +773,8 @@ def cmd_stats(message):
         logger.error(f"Error mostrando estadísticas: {e}")
         miBot.reply_to(message, f"❌ Error mostrando estadísticas: {e}")
 
-# Comandos de sistema de archivos y procesos
 @miBot.message_handler(commands=["help"])
 def cmd_help(message):
-    """Muestra ayuda"""
     help_text = f"""
 /start - Iniciar el bot
 /enserio - Respuesta divertida
@@ -763,10 +798,11 @@ def cmd_help(message):
 **⚙️ Configuración Actual:**
 • Límite de procesos: {MAX_CONCURRENT_PROCESSES}
 • Delay de reinicio: {RESTART_DELAY}s
+• Palabras de detección: {', '.join(STOP_KEYWORDS)}
 """
     miBot.reply_to(message, help_text, parse_mode=None)
 
-# Los demás comandos se mantienen igual (ls, mkdir, cd, rm, mv, zip, unzip, up, run, act, stop)
+# Los comandos de sistema de archivos se mantienen igual (ls, mkdir, cd, rm, mv, zip, unzip, up, run, act, stop)
 @miBot.message_handler(commands=["ls"])
 def cmd_ls(message):
     try:
@@ -911,7 +947,6 @@ def cmd_unzip(message):
         extract_dir = zip_file.replace('.zip', '')
         shutil.unpack_archive(zip_file, extract_dir)
         
-        # Buscar y cargar scripts automáticamente después de descomprimir (SOLO PRIMER NIVEL)
         loaded_scripts = find_and_load_scripts_from_directory(extract_dir)
         
         response = f"✅ Descomprimido: '{zip_file}' → '{extract_dir}'"
@@ -957,7 +992,6 @@ def cmd_run_js(message):
 
 @miBot.message_handler(commands=["act"])
 def cmd_processes_activ(message):
-    """Lista procesos activos"""
     if not processes and not process_queue:
         miBot.reply_to(message, "📭 No hay procesos en ejecución ni en cola")
         return
@@ -965,7 +999,6 @@ def cmd_processes_activ(message):
     message_text = f"🟢 Procesos Activos: {count_running_processes()}/{MAX_CONCURRENT_PROCESSES}\n"
     message_text += f"📊 En cola: {len(process_queue)}\n\n"
     
-    # Procesos ejecutándose
     running_found = False
     for name, process in list(processes.items()):
         if process.poll() is None:
@@ -977,10 +1010,9 @@ def cmd_processes_activ(message):
             message_text += f"• {name}: 🔴 Terminado\n"
             del processes[name]
     
-    # Procesos en cola
     if process_queue:
         message_text += f"\n**En cola:**\n"
-        for i, name in enumerate(list(process_queue)[:10]):  # Mostrar solo primeros 10
+        for i, name in enumerate(list(process_queue)[:10]):
             message_text += f"• {name} (posición: {i+1})\n"
         if len(process_queue) > 10:
             message_text += f"... y {len(process_queue) - 10} más\n"
@@ -1012,7 +1044,6 @@ def stop_process(name):
             process.wait(timeout=5)
             logger.info(f"Proceso '{name}' detenido correctamente.")
             
-            # Actualizar estadísticas
             if name in process_stats:
                 end_time = time.time()
                 uptime = end_time - process_stats[name]['start_time']
@@ -1021,7 +1052,6 @@ def stop_process(name):
             
             del processes[name]
             
-            # Procesar cola después de detener un proceso
             process_queue_from_waiting()
             return True
         except subprocess.TimeoutExpired:
@@ -1029,7 +1059,6 @@ def stop_process(name):
             processes[name].kill()
             processes[name].wait()
             
-            # Actualizar estadísticas
             if name in process_stats:
                 end_time = time.time()
                 uptime = end_time - process_stats[name]['start_time']
@@ -1038,7 +1067,6 @@ def stop_process(name):
             
             del processes[name]
             
-            # Procesar cola después de detener un proceso
             process_queue_from_waiting()
             return True
         except Exception as e:
@@ -1050,7 +1078,6 @@ def stop_process(name):
 
 # Iniciar verificación periódica de la cola
 def start_queue_monitor():
-    """Inicia el monitoreo periódico de la cola de procesos."""
     def monitor():
         while True:
             try:
@@ -1071,4 +1098,5 @@ if __name__ == '__main__':
     
     logger.info(f"Iniciando aplicación en puerto {port}")
     logger.info(f"Configuración: {MAX_CONCURRENT_PROCESSES} procesos máx, {RESTART_DELAY}s delay")
+    logger.info(f"Palabras de detección: {STOP_KEYWORDS}")
     app.run(host='0.0.0.0', port=port, debug=debug)
